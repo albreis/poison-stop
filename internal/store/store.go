@@ -119,7 +119,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(4)
-	if _, err := db.Exec(schema); err != nil {
+	if _, err := db.Exec(schema + rulesSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("criando schema: %w", err)
 	}

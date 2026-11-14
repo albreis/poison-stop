@@ -1,0 +1,17 @@
+{{define "title"}}Entrar{{end}}
+{{define "content"}}
+<div class="card login">
+  <div class="pad">
+    <h1>PoisonStop</h1>
+    <p class="sub">Entre para ver para onde seus serviços mandam dados.</p>
+    {{- if .Error}}<p class="err">Usuário ou senha incorretos.</p>{{end}}
+    <form method="post" action="/login">
+      <label for="u">Usuário</label>
+      <input id="u" type="text" name="username" autocomplete="username" required autofocus>
+      <label for="p">Senha</label>
+      <input id="p" type="password" name="password" autocomplete="current-password" required>
+      <p><button type="submit">Entrar</button></p>
+    </form>
+  </div>
+</div>
+{{end}}

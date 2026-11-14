@@ -27,6 +27,10 @@ services:
       - poisonstop-data:/data
       - ./poisonstop.yml:/etc/poisonstop.yml:ro
     environment:
+      # Primeiro usuário do painel. Sem senha definida, uma é gerada e
+      # aparece uma única vez em: docker compose logs poisonstop
+      POISONSTOP_ADMIN_USER: ${POISONSTOP_ADMIN_USER:-admin}
+      POISONSTOP_ADMIN_PASSWORD: ${POISONSTOP_ADMIN_PASSWORD:-}
       # Segredos de alerta sempre por variável de ambiente.
       POISONSTOP_WEBHOOK_SECRET: ${POISONSTOP_WEBHOOK_SECRET:-troque-este-segredo}
       POISONSTOP_TG_TOKEN: ${POISONSTOP_TG_TOKEN:-}

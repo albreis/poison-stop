@@ -25,7 +25,13 @@ cd deploy/compose
 docker compose up -d --build
 ```
 
-Abra <http://127.0.0.1:8080>. Em menos de um minuto aparecem os serviços `app` e `worker` com os hosts que cada um acessou. O `worker` também tenta falar com a internet sem passar pelo proxy, e essa tentativa falha, porque a rede `apps` é `internal`:
+Abra <http://127.0.0.1:8080> e entre como `admin`. A senha é gerada na primeira subida e aparece uma única vez no log (ou defina `POISONSTOP_ADMIN_PASSWORD` antes de subir):
+
+```bash
+docker compose logs poisonstop | grep senha
+```
+
+Em menos de um minuto aparecem os serviços `app` e `worker` com os hosts que cada um acessou. O `worker` também tenta falar com a internet sem passar pelo proxy, e essa tentativa falha, porque a rede `apps` é `internal`:
 
 ```bash
 docker compose logs -f worker
@@ -69,7 +75,18 @@ docker compose down
 - Tudo vai para um SQLite (modo WAL) em `/data`, com totais por destino e por hora.
 - O painel recusa acessos vindos das redes em `panel.deny_cidrs` (a rede dos serviços monitorados) e deve ser publicado só em `127.0.0.1` ou atrás de VPN.
 
+## Painel
+
+- **Visão geral:** serviços, modo de cada um, quantos destinos estão na whitelist e bloqueios nas últimas 24h. Serviços em `learn` mostram quanto falta para o fim do `learn_period`.
+- **Por serviço:** gráfico de conexões por hora, destinos com volume e primeira/última vez, **whitelist sugerida** (já marcada para o que foi usado e não é suspeito; IP direto, paste/upload/túnel e SNI estranho vêm desmarcados), troca de modo, adicionar e remover regras, consultas DNS.
+- **Bloqueios:** tentativas negadas pelo proxy e pelo DNS, com botão "liberar este host".
+- **Whitelist:** todas as regras em YAML, para baixar ou importar (substitui tudo).
+
+Login com usuário e senha (bcrypt), sessão por cookie `HttpOnly`/`SameSite=Strict`, POST de outra origem recusado. O painel recusa acessos vindos de `panel.deny_cidrs` e deve ficar só em `127.0.0.1` ou atrás de VPN.
+
 ## Configuração (`poisonstop.yml`)
+
+As regras de `services` **semeiam o banco na primeira subida**. Depois disso, a fonte das regras é o painel (que importa e exporta o mesmo formato YAML); mudar o arquivo não altera um banco já existente.
 
 ```yaml
 default_mode: learn          # learn | monitor | enforce
