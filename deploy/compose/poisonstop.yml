@@ -30,8 +30,17 @@ services:
   app:
     mode: learn
   worker:
-    mode: learn
-    # Exemplo de como fica depois do aprendizado:
-    # mode: enforce
-    # allow:
-    #   - api.telegram.org:443
+    # monitor: deixa passar, mas alerta o que estiver fora da lista.
+    # Troque para enforce para bloquear de verdade.
+    mode: monitor
+    allow:
+      - api.telegram.org:443
+
+alerts:
+  debounce: 10m              # no máximo 1 alerta por serviço+evento+host nesse intervalo
+  webhook:
+    url: http://alert-sink:8080/poisonstop
+    secret_env: POISONSTOP_WEBHOOK_SECRET   # assina com HMAC-SHA256 (X-PoisonStop-Signature)
+  # telegram:
+  #   bot_token_env: POISONSTOP_TG_TOKEN
+  #   chat_id: "123456"

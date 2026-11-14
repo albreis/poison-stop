@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite" // driver SQLite em Go puro (sem CGO)
@@ -61,6 +62,9 @@ type Store struct {
 	db     *sql.DB
 	events chan any // Event ou DNSEvent
 	done   chan struct{}
+
+	closeMu sync.RWMutex
+	closed  bool
 }
 
 const schema = `
@@ -130,16 +134,33 @@ func (s *Store) Record(e Event) {
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}
+	if !s.enqueue(e) {
+		slog.Warn("fila de eventos cheia, descartando", "service", e.Service, "host", e.Host)
+	}
+}
+
+// enqueue devolve false se a fila estiver cheia. Depois do Close, descarta
+// em silêncio (conexões ainda abertas durante o desligamento).
+func (s *Store) enqueue(e any) bool {
+	s.closeMu.RLock()
+	defer s.closeMu.RUnlock()
+	if s.closed {
+		return true
+	}
 	select {
 	case s.events <- e:
+		return true
 	default:
-		slog.Warn("fila de eventos cheia, descartando", "service", e.Service, "host", e.Host)
+		return false
 	}
 }
 
 // Close grava o que estiver na fila e fecha o banco.
 func (s *Store) Close() error {
+	s.closeMu.Lock()
+	s.closed = true
 	close(s.events)
+	s.closeMu.Unlock()
 	<-s.done
 	return s.db.Close()
 }
@@ -253,9 +274,7 @@ func (s *Store) RecordDNS(e DNSEvent) {
 	if e.Time.IsZero() {
 		e.Time = time.Now()
 	}
-	select {
-	case s.events <- e:
-	default:
+	if !s.enqueue(e) {
 		slog.Warn("fila de eventos cheia, descartando consulta DNS", "service", e.Service, "name", e.Name)
 	}
 }

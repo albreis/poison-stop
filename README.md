@@ -6,7 +6,7 @@ Proxy de saída (egress) com painel para Docker. Ele registra para onde cada ser
 
 O objetivo é fechar a porta mais usada por pacotes envenenados e RCEs: mesmo que o código malicioso leia suas chaves, ele não consegue mandá-las para fora.
 
-**Status:** primeira entrega testável. O proxy explícito e o DNS filtrado gravam em SQLite para onde cada serviço fala, e o painel mostra serviço → hosts e as consultas DNS. Os modos `monitor` e `enforce` já funcionam pelo `poisonstop.yml`; alertas, login e edição da whitelist pelo painel vêm a seguir (veja o [roadmap](docs/ESPECIFICACAO.md#6-roadmap)).
+**Status:** primeira entrega testável. O proxy explícito e o DNS filtrado gravam em SQLite para onde cada serviço fala, e o painel mostra serviço → hosts e as consultas DNS. Os modos `monitor` e `enforce` já funcionam pelo `poisonstop.yml`, com alertas por Telegram e webhook; login e edição da whitelist pelo painel vêm a seguir (veja o [roadmap](docs/ESPECIFICACAO.md#6-roadmap)).
 
 Leia a especificação completa em [docs/ESPECIFICACAO.md](docs/ESPECIFICACAO.md).
 
@@ -29,6 +29,12 @@ Abra <http://127.0.0.1:8080>. Em menos de um minuto aparecem os serviços `app` 
 
 ```bash
 docker compose logs -f worker
+```
+
+O `worker` está em `monitor`, liberado só para o Telegram. A conexão dele para `1.1.1.1` passa, mas gera um alerta que chega no webhook de exemplo:
+
+```bash
+docker compose logs alert-sink
 ```
 
 Para desligar:
@@ -103,6 +109,29 @@ services:
 
 Regras da whitelist: host exato com porta (`api.stripe.com:443`). Wildcard só quando escrito explicitamente (`*.dominio:443`) e só casa subdomínios. Liberar `*.googleapis.com` deixa o atacante mandar dados para um bucket **dele** dentro do Google, então prefira o host exato.
 
+## Alertas
+
+```yaml
+alerts:
+  debounce: 10m                  # 1 alerta por serviço+evento+host nesse intervalo
+  telegram:
+    bot_token_env: POISONSTOP_TG_TOKEN
+    chat_id: "123456"
+  webhook:
+    url: https://n8n.exemplo.com/webhook/poisonstop
+    secret_env: POISONSTOP_WEBHOOK_SECRET   # opcional: assina o corpo
+```
+
+| Evento | Quando |
+|---|---|
+| `blocked` | Conexão bloqueada em `enforce` (inclui SNI diferente do `CONNECT`). |
+| `dns_denied` | Consulta DNS negada em `enforce`. |
+| `off_list` | Serviço em `monitor` falou com destino fora da whitelist. |
+| `sni_mismatch` | SNI do TLS diferente do host pedido no `CONNECT` (learn/monitor). |
+| `new_host` | Serviço em `learn`, já depois do `learn_period`, falou com um destino nunca visto. |
+
+O webhook recebe um JSON com `event`, `service`, `host`, `port`, `proto`, `mode`, `detail`, `time`, `suppressed` (quantos alertas iguais foram agrupados) e `text` (mensagem pronta). Com `secret_env`, o cabeçalho `X-PoisonStop-Signature: sha256=<hmac>` permite validar a origem. Tokens e segredos vêm só de variáveis de ambiente, nunca do arquivo nem do banco.
+
 ## Desenvolvimento
 
 Não precisa de Go instalado; dá para testar dentro de um container:
@@ -122,7 +151,7 @@ internal/policy/      modos, whitelist, hosts suspeitos
 internal/store/       SQLite
 internal/web/         painel (templates embutidos)
 internal/dns/         resolver filtrado
-internal/alerts/      Telegram, webhook (a fazer)
+internal/alerts/      Telegram, webhook, debounce
 deploy/compose/       docker-compose.yml de exemplo
 docs/                 especificação
 ```

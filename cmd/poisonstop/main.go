@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/albreis/poison-stop/internal/alerts"
 	"github.com/albreis/poison-stop/internal/config"
 	"github.com/albreis/poison-stop/internal/dns"
 	"github.com/albreis/poison-stop/internal/identify"
@@ -66,7 +67,18 @@ func run() error {
 
 	pol := policy.New(cfg)
 	id := identify.New(cfg.Identify.DockerHost, cfg.Identify.StaticIPs)
-	px := proxy.New(pol, id, st)
+
+	notifier, err := alerts.New(cfg.Alerts)
+	if err != nil {
+		return err
+	}
+	defer notifier.Close()
+	slog.Info("alertas", "channels", notifier.Channels(), "debounce", time.Duration(cfg.Alerts.Debounce))
+	watcher, err := alerts.NewWatcher(context.Background(), st, notifier, pol, time.Duration(cfg.LearnPeriod))
+	if err != nil {
+		return err
+	}
+	px := proxy.New(pol, id, watcher)
 
 	panel, err := web.New(st, pol, cfg.Panel.DenyCIDRs)
 	if err != nil {
@@ -82,7 +94,7 @@ func run() error {
 		errc <- px.ListenAndServe(ctx, cfg.Proxy.Listen)
 	}()
 	if cfg.DNS.Listen != "" {
-		resolver := dns.New(pol, id, st, cfg.DNS.Upstream)
+		resolver := dns.New(pol, id, watcher, cfg.DNS.Upstream)
 		go func() {
 			slog.Info("DNS ouvindo", "addr", cfg.DNS.Listen, "upstream", resolver.Upstream)
 			if err := resolver.ListenAndServe(ctx, cfg.DNS.Listen); err != nil {

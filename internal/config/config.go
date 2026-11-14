@@ -14,15 +14,15 @@ import (
 
 // Config é a configuração completa do PoisonStop.
 type Config struct {
-	DefaultMode string                    `yaml:"default_mode"`
-	LearnPeriod Duration                  `yaml:"learn_period"`
-	Services    map[string]ServiceConfig  `yaml:"services"`
-	Proxy       ProxyConfig               `yaml:"proxy"`
-	DNS         DNSConfig                 `yaml:"dns"`
-	Panel       PanelConfig               `yaml:"panel"`
-	Identify    IdentifyConfig            `yaml:"identify"`
-	Data        DataConfig                `yaml:"data"`
-	Alerts      map[string]map[string]any `yaml:"alerts"` // lido, mas usado só na próxima etapa
+	DefaultMode string                   `yaml:"default_mode"`
+	LearnPeriod Duration                 `yaml:"learn_period"`
+	Services    map[string]ServiceConfig `yaml:"services"`
+	Proxy       ProxyConfig              `yaml:"proxy"`
+	DNS         DNSConfig                `yaml:"dns"`
+	Panel       PanelConfig              `yaml:"panel"`
+	Identify    IdentifyConfig           `yaml:"identify"`
+	Data        DataConfig               `yaml:"data"`
+	Alerts      AlertsConfig             `yaml:"alerts"`
 }
 
 // ServiceConfig é a regra de um serviço.
@@ -59,6 +59,29 @@ type IdentifyConfig struct {
 	DockerHost string `yaml:"docker_host"`
 	// StaticIPs mapeia IP -> nome do serviço (alternativa sem Docker).
 	StaticIPs map[string]string `yaml:"static_ips"`
+}
+
+// AlertsConfig configura os canais de alerta. Segredos vêm sempre de
+// variáveis de ambiente, nunca do arquivo.
+type AlertsConfig struct {
+	// Debounce é o intervalo mínimo entre alertas iguais (serviço+evento+host).
+	Debounce Duration        `yaml:"debounce"`
+	Telegram *TelegramConfig `yaml:"telegram"`
+	Webhook  *WebhookConfig  `yaml:"webhook"`
+}
+
+// TelegramConfig é o canal Telegram.
+type TelegramConfig struct {
+	BotTokenEnv string `yaml:"bot_token_env"`
+	ChatID      string `yaml:"chat_id"`
+}
+
+// WebhookConfig é o webhook genérico (n8n, Slack, Discord...).
+type WebhookConfig struct {
+	URL string `yaml:"url"`
+	// SecretEnv, se definido, assina o corpo com HMAC-SHA256 no cabeçalho
+	// X-PoisonStop-Signature.
+	SecretEnv string `yaml:"secret_env"`
 }
 
 // DataConfig configura o armazenamento.
@@ -102,6 +125,7 @@ func Default() *Config {
 		DNS:         DNSConfig{Listen: ":53"},
 		Panel:       PanelConfig{Listen: ":8080"},
 		Data:        DataConfig{Path: "/data/poisonstop.db"},
+		Alerts:      AlertsConfig{Debounce: Duration(10 * time.Minute)},
 	}
 }
 
