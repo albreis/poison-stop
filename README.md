@@ -43,6 +43,14 @@ O `worker` está em `monitor`, liberado só para o Telegram. A conexão dele par
 docker compose logs alert-sink
 ```
 
+Para testar com uma aplicação de verdade, há um WordPress (com MariaDB) dentro da rede monitorada. Instale plugins e temas pelo painel do WordPress e veja as chamadas aparecerem no PoisonStop como o serviço `wordpress`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.wordpress.yml up -d
+```
+
+Abra <http://localhost:8097>. O WordPress usa o proxy pelas constantes `WP_PROXY_*` e pelas variáveis `HTTP(S)_PROXY`; o Caddy na frente só serve o navegador.
+
 Para desligar:
 
 ```bash
