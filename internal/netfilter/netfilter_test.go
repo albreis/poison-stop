@@ -40,22 +40,26 @@ func TestSelect(t *testing.T) {
 func TestApplyAndCleanup(t *testing.T) {
 	var calls []string
 	chains := map[string]bool{}
-	run := func(args ...string) error {
+	// primeira regra de cada chain do sistema
+	first := map[string]string{"POSTROUTING": "-A POSTROUTING -s 172.40.0.0/16 ! -o br-aaaa -j MASQUERADE"}
+	run := func(args ...string) (string, error) {
 		line := strings.Join(args, " ")
 		calls = append(calls, line)
 		switch {
 		case args[2] == "-L":
 			if !chains[args[3]] {
-				return errFake
+				return "", errFake
 			}
 		case args[2] == "-N":
 			chains[args[3]] = true
-		case args[2] == "-C":
-			return errFake
+		case args[2] == "-S":
+			return "-P " + args[3] + " ACCEPT\n" + first[args[3]] + "\n", nil
+		case args[2] == "-I":
+			first[args[3]] = "-A " + args[3] + " " + strings.Join(args[5:], " ")
 		case args[2] == "-D":
-			return errFake // nada para apagar
+			return "", errFake // nada para apagar
 		}
-		return nil
+		return "", nil
 	}
 	m := NewManager(run)
 	rules := Rules([]Network{{Name: "legado", Bridge: "br-aaaa", Subnet: "172.40.0.0/16"}}, "10.89.1.2", 3180, 3443)
@@ -75,9 +79,16 @@ func TestApplyAndCleanup(t *testing.T) {
 		}
 	}
 	n := len(calls)
-	if err := m.Apply(rules); err != nil || len(calls) != n {
-		t.Error("aplicar as mesmas regras de novo não deveria mexer no iptables")
+	if err := m.Apply(rules); err != nil || strings.Contains(strings.Join(calls[n:], "\n"), " -A ") {
+		t.Error("aplicar as mesmas regras de novo não deveria reescrever as chains")
 	}
+	// o Docker pôs um MASQUERADE na frente: a ligação volta para o topo
+	first["POSTROUTING"] = "-A POSTROUTING -s 172.50.0.0/16 ! -o br-bbbb -j MASQUERADE"
+	n = len(calls)
+	if err := m.Apply(rules); err != nil || !strings.Contains(strings.Join(calls[n:], "\n"), "-t nat -I POSTROUTING 1 -j POISONSTOP-POST") {
+		t.Errorf("a ligação deveria voltar para o topo: %v", calls[n:])
+	}
+	n = len(calls)
 	m.Cleanup()
 	if !strings.Contains(strings.Join(calls[n:], "\n"), "-t nat -X POISONSTOP-PRE") {
 		t.Error("cleanup deveria apagar as chains")

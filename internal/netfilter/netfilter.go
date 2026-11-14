@@ -91,16 +91,16 @@ var jumps = []Rule{
 	{"filter", "DOCKER-USER", []string{"-j", ChainFwd}},
 }
 
-// Runner executa o iptables (trocável nos testes).
-type Runner func(args ...string) error
+// Runner executa o iptables e devolve a saída (trocável nos testes).
+type Runner func(args ...string) (string, error)
 
 func execRunner(bin string) Runner {
-	return func(args ...string) error {
+	return func(args ...string) (string, error) {
 		out, err := exec.Command(bin, args...).CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("%s %s: %v: %s", bin, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+			return "", fmt.Errorf("%s %s: %v: %s", bin, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 		}
-		return nil
+		return string(out), nil
 	}
 }
 
@@ -124,21 +124,46 @@ type Manager struct {
 // NewManager cria o Manager com um Runner.
 func NewManager(run Runner) *Manager { return &Manager{run: run} }
 
+func (m *Manager) do(args ...string) error {
+	_, err := m.run(args...)
+	return err
+}
+
 func (m *Manager) ensureChains() error {
 	for _, c := range []Rule{{"nat", ChainPre, nil}, {"nat", ChainPost, nil}, {"filter", ChainFwd, nil}} {
-		if m.run("-t", c.Table, "-L", c.Chain, "-n") != nil {
-			if err := m.run("-t", c.Table, "-N", c.Chain); err != nil {
+		if m.do("-t", c.Table, "-L", c.Chain, "-n") != nil {
+			if err := m.do("-t", c.Table, "-N", c.Chain); err != nil {
 				return err
 			}
 		}
 	}
+	return m.EnsureFirst()
+}
+
+// EnsureFirst garante que as ligações para as chains do PoisonStop são a
+// primeira regra de cada chain do sistema. O Docker insere regras (ex.: o
+// MASQUERADE de uma rede nova) no topo, e elas não podem passar na frente.
+func (m *Manager) EnsureFirst() error {
 	for _, j := range jumps {
-		check := append([]string{"-t", j.Table, "-C", j.Chain}, j.Args...)
-		if m.run(check...) != nil {
-			ins := append([]string{"-t", j.Table, "-I", j.Chain, "1"}, j.Args...)
-			if err := m.run(ins...); err != nil {
-				return err
+		want := "-A " + j.Chain + " " + strings.Join(j.Args, " ")
+		out, err := m.run("-t", j.Table, "-S", j.Chain)
+		if err != nil {
+			return err
+		}
+		first := ""
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(line, "-A ") {
+				first = strings.TrimSpace(line)
+				break
 			}
+		}
+		if first == want {
+			continue
+		}
+		for m.do(append([]string{"-t", j.Table, "-D", j.Chain}, j.Args...)...) == nil {
+		}
+		if err := m.do(append([]string{"-t", j.Table, "-I", j.Chain, "1"}, j.Args...)...); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -148,19 +173,19 @@ func (m *Manager) ensureChains() error {
 func (m *Manager) Apply(rules []Rule) error {
 	sig := signature(rules)
 	if sig == m.applied {
-		return nil
+		return m.EnsureFirst()
 	}
 	if err := m.ensureChains(); err != nil {
 		return err
 	}
 	for _, c := range []Rule{{"nat", ChainPre, nil}, {"nat", ChainPost, nil}, {"filter", ChainFwd, nil}} {
-		if err := m.run("-t", c.Table, "-F", c.Chain); err != nil {
+		if err := m.do("-t", c.Table, "-F", c.Chain); err != nil {
 			return err
 		}
 	}
 	for _, r := range rules {
 		args := append([]string{"-t", r.Table, "-A", r.Chain}, r.Args...)
-		if err := m.run(args...); err != nil {
+		if err := m.do(args...); err != nil {
 			m.applied = ""
 			return err
 		}
@@ -172,12 +197,12 @@ func (m *Manager) Apply(rules []Rule) error {
 // Cleanup remove as ligações e as chains do PoisonStop.
 func (m *Manager) Cleanup() {
 	for _, j := range jumps {
-		for m.run(append([]string{"-t", j.Table, "-D", j.Chain}, j.Args...)...) == nil {
+		for m.do(append([]string{"-t", j.Table, "-D", j.Chain}, j.Args...)...) == nil {
 		}
 	}
 	for _, c := range []Rule{{"nat", ChainPre, nil}, {"nat", ChainPost, nil}, {"filter", ChainFwd, nil}} {
-		_ = m.run("-t", c.Table, "-F", c.Chain)
-		_ = m.run("-t", c.Table, "-X", c.Chain)
+		_ = m.do("-t", c.Table, "-F", c.Chain)
+		_ = m.do("-t", c.Table, "-X", c.Chain)
 	}
 	m.applied = ""
 }

@@ -85,23 +85,17 @@ docker compose down
 
 ## Modo transparente (stacks que já existem)
 
-Para monitorar uma stack sem mexer nela (sem `HTTP_PROXY`, sem trocar de rede), suba o sidecar `netfilter` dizendo quais redes Docker observar:
+Para monitorar **todas** as stacks da máquina, antigas e novas, sem mexer em nenhuma (sem `HTTP_PROXY`, sem trocar de rede), suba o sidecar `netfilter`:
 
 ```bash
-POISONSTOP_NETWORKS=minha-stack_default docker compose -f docker-compose.yml -f docker-compose.transparent.yml up -d --build
-```
-
-No PowerShell:
-
-```powershell
-$env:POISONSTOP_NETWORKS = "minha-stack_default"
 docker compose -f docker-compose.yml -f docker-compose.transparent.yml up -d --build
 ```
 
-Use `docker network ls` para achar o nome da rede (`*` pega todas as bridges; `POISONSTOP_EXCLUDE` tira algumas).
+Por padrão ele pega todas as redes bridge do Docker e reconfere a lista a cada 10 segundos, então uma stack nova entra sozinha. Para limitar, use `POISONSTOP_NETWORKS=rede1,rede2`; para deixar alguma de fora, `POISONSTOP_EXCLUDE=rede3` (nomes em `docker network ls`). No PowerShell, defina antes com `$env:POISONSTOP_EXCLUDE = "rede3"`.
 
 Como funciona:
 
+- O sidecar mantém a ligação para as chains dele sempre no topo, porque o Docker insere o MASQUERADE de cada rede nova na frente.
 - O sidecar roda com `network_mode: host` e `NET_ADMIN` (no Docker Desktop, isso é a VM do Docker) e cria as chains `POISONSTOP-PRE`, `POISONSTOP-POST` e `POISONSTOP-FWD` no iptables.
 - O TCP 80/443 que sai das redes escolhidas para **destinos públicos** é desviado (DNAT) para o PoisonStop. Tráfego para faixas privadas (outros containers, banco, host) segue direto.
 - O IP de origem é preservado até o PoisonStop, que identifica o container pela API do Docker como no modo explícito. HTTP é decidido pelo `Host`; TLS pelo SNI, sem abrir o tráfego.
