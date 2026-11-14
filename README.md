@@ -83,6 +83,27 @@ docker compose down
 - Tudo vai para um SQLite (modo WAL) em `/data`, com totais por destino e por hora.
 - O painel recusa acessos vindos das redes em `panel.deny_cidrs` (a rede dos serviços monitorados) e deve ser publicado só em `127.0.0.1` ou atrás de VPN.
 
+## Modo transparente (stacks que já existem)
+
+Para monitorar **todas** as stacks da máquina, antigas e novas, sem mexer em nenhuma (sem `HTTP_PROXY`, sem trocar de rede), suba o sidecar `netfilter`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.transparent.yml up -d --build
+```
+
+Por padrão ele pega todas as redes bridge do Docker e reconfere a lista a cada 10 segundos, então uma stack nova entra sozinha. Para limitar, use `POISONSTOP_NETWORKS=rede1,rede2`; para deixar alguma de fora, `POISONSTOP_EXCLUDE=rede3` (nomes em `docker network ls`). No PowerShell, defina antes com `$env:POISONSTOP_EXCLUDE = "rede3"`.
+
+Como funciona:
+
+- O sidecar mantém a ligação para as chains dele sempre no topo, porque o Docker insere o MASQUERADE de cada rede nova na frente.
+- O sidecar roda com `network_mode: host` e `NET_ADMIN` (no Docker Desktop, isso é a VM do Docker) e cria as chains `POISONSTOP-PRE`, `POISONSTOP-POST` e `POISONSTOP-FWD` no iptables.
+- O TCP 80/443 que sai das redes escolhidas para **destinos públicos** é desviado (DNAT) para o PoisonStop. Tráfego para faixas privadas (outros containers, banco, host) segue direto.
+- O IP de origem é preservado até o PoisonStop, que identifica o container pela API do Docker como no modo explícito. HTTP é decidido pelo `Host`; TLS pelo SNI, sem abrir o tráfego.
+- **Falha aberta:** se o PoisonStop não responder, o sidecar tira o desvio e as stacks voltam a sair direto; quando ele volta, o desvio volta. Ao derrubar o sidecar, as regras são removidas.
+- O sidecar só fala com o `docker-socket-proxy` (somente leitura, `CONTAINERS` e `NETWORKS`). O `docker.sock` nunca é montado com escrita.
+
+Limitações: TLS sem SNI (conexão para IP direto) não tem como ser repassado nesse modo e é recusado; portas diferentes de 80/443 e o DNS ainda não são desviados; só IPv4.
+
 ## Painel
 
 - **Visão geral:** serviços, modo de cada um, quantos destinos estão na whitelist e bloqueios nas últimas 24h. Serviços em `learn` mostram quanto falta para o fim do `learn_period`.

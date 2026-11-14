@@ -1,0 +1,52 @@
+# Modo transparente: monitora todas as stacks, antigas e novas, sem mexer nelas.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.transparent.yml up -d --build
+#
+# Por padrão pega todas as redes bridge, inclusive as criadas depois (a lista
+# é atualizada a cada 10 s). Para limitar: POISONSTOP_NETWORKS=rede1,rede2.
+# Para deixar alguma de fora: POISONSTOP_EXCLUDE=rede3.
+#
+# O sidecar "netfilter" roda na rede do host (no Docker Desktop, a VM do
+# Docker) e desvia o TCP 80/443 que sai das redes listadas para o PoisonStop.
+# Destinos privados (outros containers, banco, host) seguem direto. Se o
+# PoisonStop parar de responder, o desvio é desligado (falha aberta); ao
+# derrubar o sidecar, as regras são removidas.
+services:
+  poisonstop:
+    networks:
+      egress:
+        ipv4_address: 10.89.1.2
+
+  docker-proxy:
+    environment:
+      NETWORKS: 1             # o sidecar precisa listar as redes (só leitura)
+    networks:
+      dockerapi: {}
+      egress:
+        ipv4_address: 10.89.1.3
+
+  netfilter:
+    build:
+      context: ../..
+      target: netfilter
+    image: ghcr.io/albreis/poison-stop:dev-netfilter
+    restart: unless-stopped
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW]
+    stop_grace_period: 15s
+    environment:
+      POISONSTOP_TARGET: 10.89.1.2
+      POISONSTOP_DOCKER_HOST: http://10.89.1.3:2375
+      # Redes a monitorar: * (padrão) pega todas as bridges, inclusive as criadas
+      # depois; ou nomes separados por vírgula. POISONSTOP_EXCLUDE tira algumas.
+      POISONSTOP_NETWORKS: ${POISONSTOP_NETWORKS:-*}
+      POISONSTOP_EXCLUDE: ${POISONSTOP_EXCLUDE:-}
+    depends_on: [poisonstop, docker-proxy]
+
+networks:
+  egress:
+    ipam:
+      config:
+        - subnet: 10.89.1.0/24
+          ip_range: 10.89.1.128/25

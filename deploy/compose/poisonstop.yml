@@ -10,6 +10,12 @@ dns:
   listen: ":53"
   # upstream: 1.1.1.1:53   # padrão: o DNS do próprio container (Docker)
 
+# Modo transparente: recebe o tráfego desviado pelo sidecar netfilter
+# (docker-compose.transparent.yml). Fica parado se ninguém desviar nada.
+transparent:
+  http_listen: ":3180"
+  tls_listen: ":3443"
+
 panel:
   listen: ":8080"
   # O painel recusa acessos vindos da rede dos serviços monitorados.

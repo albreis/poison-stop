@@ -126,3 +126,28 @@ func TestPeekClientHello(t *testing.T) {
 		t.Errorf("sni=%q tls=%v consumidos=%d", sni, isTLS, len(consumed))
 	}
 }
+
+func TestTransparentTLS(t *testing.T) {
+	cfg := config.Default()
+	cfg.Services["app"] = config.ServiceConfig{Mode: "enforce", Allow: []string{"api.stripe.com:443"}}
+	rec := &memRec{}
+	p := New(policy.New(cfg), fixedIdent("app"), rec)
+
+	// SNI fora da lista: recusado e registrado como bloqueio
+	a, b := net.Pipe()
+	done := make(chan struct{})
+	go func() { p.ServeTransparentTLS(b); close(done) }()
+	go func() { _ = tls.Client(a, &tls.Config{ServerName: "evil.com", InsecureSkipVerify: true}).Handshake() }()
+	<-done
+	a.Close()
+
+	// conexão vazia (checagem de saúde): não registra nada
+	c, d := net.Pipe()
+	c.Close()
+	p.ServeTransparentTLS(d)
+
+	evs := rec.all()
+	if len(evs) != 1 || evs[0].Host != "evil.com" || !evs[0].Blocked || evs[0].Proto != "tls" {
+		t.Errorf("eventos inesperados: %+v", evs)
+	}
+}

@@ -19,6 +19,7 @@ type Config struct {
 	Services    map[string]ServiceConfig `yaml:"services"`
 	Proxy       ProxyConfig              `yaml:"proxy"`
 	DNS         DNSConfig                `yaml:"dns"`
+	Transparent TransparentConfig        `yaml:"transparent"`
 	Panel       PanelConfig              `yaml:"panel"`
 	Identify    IdentifyConfig           `yaml:"identify"`
 	Data        DataConfig               `yaml:"data"`
@@ -34,6 +35,13 @@ type ServiceConfig struct {
 // ProxyConfig configura o proxy explícito.
 type ProxyConfig struct {
 	Listen string `yaml:"listen"`
+}
+
+// TransparentConfig liga os listeners do modo transparente (o tráfego chega
+// desviado pelo firewall do host, sem HTTP_PROXY). Vazio desliga.
+type TransparentConfig struct {
+	HTTPListen string `yaml:"http_listen"`
+	TLSListen  string `yaml:"tls_listen"`
 }
 
 // DNSConfig configura o resolver filtrado.
