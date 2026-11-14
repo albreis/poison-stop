@@ -32,8 +32,11 @@ type Identifier struct {
 // MaxAge é quanto tempo o mapa vindo do Docker vale antes de ser renovado.
 const MaxAge = 30 * time.Second
 
-// minRetry evita martelar o Docker quando aparece um IP desconhecido.
-const minRetry = 3 * time.Second
+// minRetry limita as consultas ao Docker quando aparece um IP desconhecido.
+// É curto de propósito: um container recém-criado (um script que roda e
+// sai) precisa ser identificado já na primeira conexão, senão cai como
+// "ip:..." no modo padrão em vez das regras do serviço dele.
+const minRetry = 200 * time.Millisecond
 
 // New cria um Identifier. dockerHost pode ser vazio.
 func New(dockerHost string, static map[string]string) *Identifier {
@@ -62,7 +65,9 @@ func (i *Identifier) Identify(ip string) string {
 		return n
 	}
 	if !ok && age < minRetry {
-		return "ip:" + ip
+		// acabou de consultar: espera o intervalo mínimo e consulta de novo,
+		// porque o container pode ter acabado de nascer
+		time.Sleep(minRetry - age)
 	}
 	i.refresh()
 	i.mu.RLock()

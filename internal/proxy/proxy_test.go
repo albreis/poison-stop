@@ -2,11 +2,13 @@ package proxy
 
 import (
 	"crypto/tls"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 
@@ -149,5 +151,55 @@ func TestTransparentTLS(t *testing.T) {
 	evs := rec.all()
 	if len(evs) != 1 || evs[0].Host != "evil.com" || !evs[0].Blocked || evs[0].Proto != "tls" {
 		t.Errorf("eventos inesperados: %+v", evs)
+	}
+}
+
+func TestRelayedTCP(t *testing.T) {
+	// "servidor SSH" de mentira
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		c.Write([]byte("SSH-2.0-teste\r\n"))
+		c.Close()
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	cfg := config.Default()
+	rec := &memRec{}
+	p := New(policy.New(cfg), fixedIdent("meuchefe/worker"), rec)
+	a, b := net.Pipe()
+	go p.ServeRelayedTCP(b)
+	fmt.Fprintf(a, "PROXY TCP4 172.19.0.7 127.0.0.1 40000 %d\r\n", port)
+	buf := make([]byte, 64)
+	n, _ := a.Read(buf)
+	if !strings.HasPrefix(string(buf[:n]), "SSH-2.0") {
+		t.Fatalf("esperava o banner SSH, veio %q", buf[:n])
+	}
+	a.Close()
+	waitFor(t, func() bool { return len(rec.all()) == 1 })
+	ev := rec.all()[0]
+	if ev.Host != "127.0.0.1" || ev.Port != port || ev.Proto != "tcp" || ev.BytesIn == 0 {
+		t.Errorf("evento: %+v", ev)
+	}
+
+	// enforce sem regra: conexão fechada e bloqueio registrado
+	cfg.Services["meuchefe/worker"] = config.ServiceConfig{Mode: "enforce"}
+	p = New(policy.New(cfg), fixedIdent("meuchefe/worker"), rec)
+	a, b = net.Pipe()
+	go p.ServeRelayedTCP(b)
+	fmt.Fprintf(a, "PROXY TCP4 172.19.0.7 140.82.112.3 40000 22\r\n")
+	waitFor(t, func() bool { return len(rec.all()) == 2 })
+	if ev := rec.all()[1]; !ev.Blocked || ev.Proto != "tcp/ssh" {
+		t.Errorf("deveria bloquear ssh: %+v", ev)
+	}
+	if _, _, _, err := ParseProxyV1("PROXY TCP4 x y 1 2"); err == nil {
+		t.Error("cabeçalho inválido deveria falhar")
 	}
 }

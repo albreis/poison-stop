@@ -15,6 +15,9 @@ dns:
 transparent:
   http_listen: ":3180"
   tls_listen: ":3443"
+  # Resto do TCP (SSH, SCP, FTP, SMTP...), entregue pelo relay do sidecar.
+  tcp_listen: ":3400"
+  relay_from: ["10.89.1.1/32"]   # gateway da rede egress (o host)
 
 panel:
   listen: ":8080"

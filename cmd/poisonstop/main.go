@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -121,6 +122,25 @@ func run() error {
 	defer stop()
 
 	errc := make(chan error, 4)
+	if cfg.Transparent.TCPListen != "" {
+		var trusted []*net.IPNet
+		for _, c := range cfg.Transparent.RelayFrom {
+			_, n, err := net.ParseCIDR(c)
+			if err != nil {
+				return fmt.Errorf("transparent.relay_from: %w", err)
+			}
+			trusted = append(trusted, n)
+		}
+		if len(trusted) == 0 {
+			return fmt.Errorf("transparent.tcp_listen exige transparent.relay_from")
+		}
+		go func() {
+			slog.Info("TCP genérico ouvindo", "addr", cfg.Transparent.TCPListen, "relay_from", cfg.Transparent.RelayFrom)
+			if err := px.ListenRelayedTCP(ctx, cfg.Transparent.TCPListen, trusted); err != nil {
+				errc <- fmt.Errorf("tcp: %w", err)
+			}
+		}()
+	}
 	if cfg.Transparent.HTTPListen != "" && cfg.Transparent.TLSListen != "" {
 		go func() {
 			slog.Info("modo transparente ouvindo", "http", cfg.Transparent.HTTPListen, "tls", cfg.Transparent.TLSListen)
@@ -194,6 +214,11 @@ func runNetfilter() error {
 		Exclude:    split(os.Getenv("POISONSTOP_EXCLUDE")),
 		DockerHost: os.Getenv("POISONSTOP_DOCKER_HOST"),
 		Iptables:   os.Getenv("POISONSTOP_IPTABLES"),
+		RelayPort:  atoi("POISONSTOP_RELAY_PORT", 15001),
+		RelayTo:    os.Getenv("POISONSTOP_TCP_TARGET"),
+	}
+	if cfg.RelayTo == "" {
+		cfg.RelayTo = net.JoinHostPort(cfg.Target, strconv.Itoa(atoi("POISONSTOP_TCP_PORT", 3400)))
 	}
 	if cfg.Target == "" || cfg.DockerHost == "" || len(cfg.Networks) == 0 {
 		return fmt.Errorf("defina POISONSTOP_TARGET, POISONSTOP_DOCKER_HOST e POISONSTOP_NETWORKS")

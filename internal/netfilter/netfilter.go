@@ -51,6 +51,8 @@ type Config struct {
 	DockerHost string   // docker-socket-proxy (GET /networks)
 	Iptables   string   // binário; vazio detecta (iptables-nft ou iptables-legacy)
 	Interval   time.Duration
+	RelayPort  int    // porta local do relay do TCP genérico (0 desliga)
+	RelayTo    string // listener TCP genérico do PoisonStop (ex.: 10.89.1.2:3400)
 }
 
 // Network é uma rede Docker do tipo bridge.
@@ -67,7 +69,8 @@ type Rule struct {
 }
 
 // Rules calcula as regras para as redes dadas.
-func Rules(nets []Network, target string, httpPort, tlsPort int) []Rule {
+// relayPort > 0 desvia também o resto do TCP (REDIRECT para o relay local).
+func Rules(nets []Network, target string, httpPort, tlsPort, relayPort int) []Rule {
 	var r []Rule
 	for _, p := range privateRanges {
 		r = append(r, Rule{"nat", ChainPre, []string{"-d", p, "-j", "RETURN"}})
@@ -80,6 +83,9 @@ func Rules(nets []Network, target string, httpPort, tlsPort int) []Rule {
 			Rule{"filter", ChainFwd, []string{"-i", n.Bridge, "-d", target, "-p", "tcp", "-m", "multiport", "--dports", fmt.Sprintf("%d,%d", httpPort, tlsPort), "-j", "ACCEPT"}},
 			Rule{"filter", ChainFwd, []string{"-o", n.Bridge, "-s", target, "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"}},
 		)
+		if relayPort > 0 {
+			r = append(r, Rule{"nat", ChainPre, []string{"-i", n.Bridge, "-p", "tcp", "-j", "REDIRECT", "--to-ports", fmt.Sprint(relayPort)}})
+		}
 	}
 	return r
 }
@@ -305,7 +311,15 @@ func Run(ctx context.Context, cfg Config) error {
 		m.Cleanup()
 		slog.Info("regras do modo transparente removidas")
 	}()
-	slog.Info("modo transparente", "iptables", cfg.Iptables, "target", cfg.Target, "networks", cfg.Networks, "exclude", cfg.Exclude)
+	if cfg.RelayPort > 0 {
+		relay := &Relay{Listen: fmt.Sprintf(":%d", cfg.RelayPort), Target: cfg.RelayTo}
+		go func() {
+			if err := relay.Run(ctx); err != nil {
+				slog.Error("relay TCP", "err", err)
+			}
+		}()
+	}
+	slog.Info("modo transparente", "relay", cfg.RelayPort, "iptables", cfg.Iptables, "target", cfg.Target, "networks", cfg.Networks, "exclude", cfg.Exclude)
 
 	var lastNames string
 	wasHealthy := true
@@ -323,7 +337,7 @@ func Run(ctx context.Context, cfg Config) error {
 		// Sem o PoisonStop no ar, ou sem saber as redes, não desvia nada.
 		var rules []Rule
 		if ok && err == nil {
-			rules = Rules(nets, cfg.Target, cfg.HTTPPort, cfg.TLSPort)
+			rules = Rules(nets, cfg.Target, cfg.HTTPPort, cfg.TLSPort, cfg.RelayPort)
 		}
 		if !ok && wasHealthy {
 			slog.Warn("PoisonStop não responde: desvio desligado (falha aberta)")

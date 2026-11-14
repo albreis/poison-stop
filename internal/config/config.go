@@ -42,6 +42,10 @@ type ProxyConfig struct {
 type TransparentConfig struct {
 	HTTPListen string `yaml:"http_listen"`
 	TLSListen  string `yaml:"tls_listen"`
+	// TCPListen recebe o resto do TCP (SSH, FTP, SMTP...) do relay do
+	// sidecar, com cabeçalho PROXY. RelayFrom são as origens aceitas.
+	TCPListen string   `yaml:"tcp_listen"`
+	RelayFrom []string `yaml:"relay_from"`
 }
 
 // DNSConfig configura o resolver filtrado.

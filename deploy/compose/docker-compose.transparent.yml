@@ -49,4 +49,5 @@ networks:
     ipam:
       config:
         - subnet: 10.89.1.0/24
+          gateway: 10.89.1.1
           ip_range: 10.89.1.128/25
