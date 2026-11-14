@@ -1,0 +1,98 @@
+# Exemplo do PoisonStop em modo learn.
+#
+#   cd deploy/compose
+#   docker compose up -d --build
+#   abra http://127.0.0.1:8080
+#
+# Os serviços "app" e "worker" ficam na rede "apps" (internal: true), sem
+# rota para a internet. O único caminho para fora é o proxy do PoisonStop.
+name: poisonstop-demo
+
+services:
+  poisonstop:
+    build: ../..
+    image: ghcr.io/albreis/poison-stop:dev
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      apps:
+        ipv4_address: 10.89.0.2
+      egress: {}
+      dockerapi: {}
+    ports:
+      - "127.0.0.1:${POISONSTOP_PANEL_PORT:-8080}:8080"   # painel só local / atrás de VPN
+    volumes:
+      - poisonstop-data:/data
+      - ./poisonstop.yml:/etc/poisonstop.yml:ro
+    depends_on: [docker-proxy]
+
+  # Acesso somente leitura à lista de containers, para mapear IP -> serviço.
+  # Nunca monte o docker.sock direto no PoisonStop.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [dockerapi]
+
+  # Aplicação de exemplo: fala com alguns hosts a cada 20 s.
+  app:
+    image: curlimages/curl:8.17.0
+    restart: unless-stopped
+    networks: [apps]
+    environment: &proxy_env
+      HTTP_PROXY: http://poisonstop:3128
+      HTTPS_PROXY: http://poisonstop:3128
+      http_proxy: http://poisonstop:3128
+      https_proxy: http://poisonstop:3128
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+    labels:
+      poisonstop.service: app
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          curl -s -o /dev/null -w "github %{http_code}\n" https://api.github.com/zen
+          curl -s -o /dev/null -w "example %{http_code}\n" http://example.com/
+          curl -s -o /dev/null -w "google %{http_code}\n" https://www.google.com/
+          sleep 20
+        done
+
+  # Worker de exemplo: inclui uma conexão para IP direto (aparece como suspeita)
+  # e uma tentativa de pular o proxy (falha, porque a rede apps é internal).
+  worker:
+    image: curlimages/curl:8.17.0
+    restart: unless-stopped
+    networks: [apps]
+    environment: *proxy_env
+    labels:
+      poisonstop.service: worker
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          curl -s -o /dev/null -w "telegram %{http_code}\n" https://api.telegram.org/
+          curl -s -k -o /dev/null -w "ip-direto %{http_code}\n" https://1.1.1.1/
+          curl -s -m 5 --noproxy '*' -o /dev/null -w "sem-proxy %{http_code}\n" https://example.com/ || echo "sem-proxy: bloqueado pela rede (esperado)"
+          sleep 30
+        done
+
+networks:
+  apps:
+    internal: true          # sem rota para a internet
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24
+          ip_range: 10.89.0.128/25   # IPs dinâmicos; 10.89.0.2 fica reservado ao PoisonStop
+  egress: {}                # só o PoisonStop está aqui
+  dockerapi:
+    internal: true          # PoisonStop <-> docker-socket-proxy
+
+volumes:
+  poisonstop-data:

@@ -1,0 +1,32 @@
+# Configuração do PoisonStop para o exemplo.
+default_mode: learn          # learn | monitor | enforce
+learn_period: 7d
+
+proxy:
+  listen: ":3128"
+
+panel:
+  listen: ":8080"
+  # O painel recusa acessos vindos da rede dos serviços monitorados.
+  deny_cidrs: ["10.89.0.0/24"]
+
+identify:
+  # docker-socket-proxy somente leitura (mapeia IP -> container).
+  docker_host: http://docker-proxy:2375
+  # Alternativa sem Docker: IPs fixos.
+  # static_ips:
+  #   10.89.0.10: app
+
+data:
+  path: /data/poisonstop.db
+
+# Regras por serviço. Sem regra, vale o default_mode.
+services:
+  app:
+    mode: learn
+  worker:
+    mode: learn
+    # Exemplo de como fica depois do aprendizado:
+    # mode: enforce
+    # allow:
+    #   - api.telegram.org:443
