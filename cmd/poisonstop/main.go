@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/albreis/poison-stop/internal/config"
 	"github.com/albreis/poison-stop/internal/dns"
 	"github.com/albreis/poison-stop/internal/identify"
+	"github.com/albreis/poison-stop/internal/netfilter"
 	"github.com/albreis/poison-stop/internal/policy"
 	"github.com/albreis/poison-stop/internal/proxy"
 	"github.com/albreis/poison-stop/internal/store"
@@ -28,6 +31,13 @@ var version = "dev"
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
 		os.Exit(healthcheck())
+	}
+	if len(os.Args) > 1 && os.Args[1] == "netfilter" {
+		if err := runNetfilter(); err != nil {
+			slog.Error("netfilter", "err", err)
+			os.Exit(1)
+		}
+		return
 	}
 	if err := run(); err != nil {
 		slog.Error("encerrando", "err", err)
@@ -109,7 +119,15 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	errc := make(chan error, 3)
+	errc := make(chan error, 4)
+	if cfg.Transparent.HTTPListen != "" && cfg.Transparent.TLSListen != "" {
+		go func() {
+			slog.Info("modo transparente ouvindo", "http", cfg.Transparent.HTTPListen, "tls", cfg.Transparent.TLSListen)
+			if err := px.ListenTransparent(ctx, cfg.Transparent.HTTPListen, cfg.Transparent.TLSListen); err != nil {
+				errc <- fmt.Errorf("transparente: %w", err)
+			}
+		}()
+	}
 	go func() {
 		slog.Info("proxy ouvindo", "addr", cfg.Proxy.Listen)
 		errc <- px.ListenAndServe(ctx, cfg.Proxy.Listen)
@@ -146,6 +164,42 @@ func run() error {
 	case err := <-errc:
 		return err
 	}
+}
+
+// runNetfilter roda o sidecar do modo transparente (network_mode: host,
+// NET_ADMIN). Configuração por variáveis de ambiente.
+func runNetfilter() error {
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+	split := func(v string) []string {
+		var out []string
+		for _, s := range strings.Split(v, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	atoi := func(k string, def int) int {
+		if n, err := strconv.Atoi(os.Getenv(k)); err == nil {
+			return n
+		}
+		return def
+	}
+	cfg := netfilter.Config{
+		Target:     os.Getenv("POISONSTOP_TARGET"),
+		HTTPPort:   atoi("POISONSTOP_HTTP_PORT", 3180),
+		TLSPort:    atoi("POISONSTOP_TLS_PORT", 3443),
+		Networks:   split(os.Getenv("POISONSTOP_NETWORKS")),
+		Exclude:    split(os.Getenv("POISONSTOP_EXCLUDE")),
+		DockerHost: os.Getenv("POISONSTOP_DOCKER_HOST"),
+		Iptables:   os.Getenv("POISONSTOP_IPTABLES"),
+	}
+	if cfg.Target == "" || cfg.DockerHost == "" || len(cfg.Networks) == 0 {
+		return fmt.Errorf("defina POISONSTOP_TARGET, POISONSTOP_DOCKER_HOST e POISONSTOP_NETWORKS")
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return netfilter.Run(ctx, cfg)
 }
 
 // healthcheck é usado pelo HEALTHCHECK do container (a imagem não tem shell).
