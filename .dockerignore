@@ -1,0 +1,5 @@
+.git
+deploy
+docs
+*.db
+*.db-*

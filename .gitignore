@@ -1,0 +1,5 @@
+/poisonstop
+*.db
+*.db-shm
+*.db-wal
+deploy/compose/poisonstop-data/
