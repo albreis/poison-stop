@@ -59,7 +59,7 @@ type Service struct {
 // Store é o banco.
 type Store struct {
 	db     *sql.DB
-	events chan Event
+	events chan any // Event ou DNSEvent
 	done   chan struct{}
 }
 
@@ -95,6 +95,16 @@ CREATE TABLE IF NOT EXISTS hourly (
 	bytes_in  INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (service, host, port, hour)
 );
+CREATE TABLE IF NOT EXISTS dns_queries (
+	service    TEXT NOT NULL,
+	name       TEXT NOT NULL,
+	qtype      TEXT NOT NULL,
+	first_seen INTEGER NOT NULL,
+	last_seen  INTEGER NOT NULL,
+	hits       INTEGER NOT NULL DEFAULT 0,
+	denied     INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (service, name, qtype)
+);
 `
 
 // Open abre (ou cria) o banco em path.
@@ -109,7 +119,7 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("criando schema: %w", err)
 	}
-	s := &Store{db: db, events: make(chan Event, 4096), done: make(chan struct{})}
+	s := &Store{db: db, events: make(chan any, 4096), done: make(chan struct{})}
 	go s.writer()
 	return s, nil
 }
@@ -138,7 +148,7 @@ func (s *Store) writer() {
 	defer close(s.done)
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
-	var batch []Event
+	var batch []any
 	flush := func() {
 		if len(batch) == 0 {
 			return
@@ -172,13 +182,20 @@ func b2i(b bool) int {
 	return 0
 }
 
-func (s *Store) write(batch []Event) error {
+func (s *Store) write(batch []any) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	for _, e := range batch {
+	for _, item := range batch {
+		if q, ok := item.(DNSEvent); ok {
+			if err := writeDNS(tx, q); err != nil {
+				return err
+			}
+			continue
+		}
+		e := item.(Event)
 		ts := e.Time.Unix()
 		if _, err := tx.Exec(`INSERT INTO services(name, last_ip, first_seen, last_seen) VALUES(?,?,?,?)
 			ON CONFLICT(name) DO UPDATE SET last_ip=excluded.last_ip, last_seen=MAX(last_seen, excluded.last_seen)`,
@@ -208,6 +225,81 @@ func (s *Store) write(batch []Event) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// DNSEvent é uma consulta DNS recebida pelo resolver.
+type DNSEvent struct {
+	Time     time.Time
+	Service  string
+	ClientIP string
+	Name     string
+	QType    string
+	Denied   bool
+}
+
+// DNSQuery é o agregado de consultas de um serviço a um nome.
+type DNSQuery struct {
+	Service   string
+	Name      string
+	QType     string
+	FirstSeen time.Time
+	LastSeen  time.Time
+	Hits      int64
+	Denied    int64
+}
+
+// RecordDNS enfileira uma consulta DNS (nunca bloqueia).
+func (s *Store) RecordDNS(e DNSEvent) {
+	if e.Time.IsZero() {
+		e.Time = time.Now()
+	}
+	select {
+	case s.events <- e:
+	default:
+		slog.Warn("fila de eventos cheia, descartando consulta DNS", "service", e.Service, "name", e.Name)
+	}
+}
+
+func writeDNS(tx *sql.Tx, e DNSEvent) error {
+	ts := e.Time.Unix()
+	if _, err := tx.Exec(`INSERT INTO services(name, last_ip, first_seen, last_seen) VALUES(?,?,?,?)
+		ON CONFLICT(name) DO UPDATE SET last_ip=excluded.last_ip, last_seen=MAX(last_seen, excluded.last_seen)`,
+		e.Service, e.ClientIP, ts, ts); err != nil {
+		return err
+	}
+	_, err := tx.Exec(`INSERT INTO dns_queries(service, name, qtype, first_seen, last_seen, hits, denied)
+		VALUES(?,?,?,?,?,1,?)
+		ON CONFLICT(service, name, qtype) DO UPDATE SET
+			last_seen=MAX(last_seen, excluded.last_seen), hits=hits+1, denied=denied+excluded.denied`,
+		e.Service, e.Name, e.QType, ts, ts, b2i(e.Denied))
+	return err
+}
+
+// DNSQueries lista as consultas DNS agregadas (todas se service == "").
+func (s *Store) DNSQueries(ctx context.Context, service string) ([]DNSQuery, error) {
+	q := `SELECT service, name, qtype, first_seen, last_seen, hits, denied FROM dns_queries`
+	var args []any
+	if service != "" {
+		q += ` WHERE service = ?`
+		args = append(args, service)
+	}
+	q += ` ORDER BY service, hits DESC, name`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []DNSQuery
+	for rows.Next() {
+		var d DNSQuery
+		var fs, ls int64
+		if err := rows.Scan(&d.Service, &d.Name, &d.QType, &fs, &ls, &d.Hits, &d.Denied); err != nil {
+			return nil, err
+		}
+		d.FirstSeen, d.LastSeen = time.Unix(fs, 0), time.Unix(ls, 0)
+		out = append(out, d)
+	}
+	return out, rows.Err()
 }
 
 // Services lista os serviços vistos, mais recentes primeiro.

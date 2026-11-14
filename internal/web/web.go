@@ -98,6 +98,7 @@ type serviceView struct {
 	store.Service
 	Mode  string
 	Dests []destView
+	DNS   []store.DNSQuery
 }
 
 func (s *Server) load(r *http.Request) ([]serviceView, error) {
@@ -109,6 +110,14 @@ func (s *Server) load(r *http.Request) ([]serviceView, error) {
 	if err != nil {
 		return nil, err
 	}
+	queries, err := s.Store.DNSQueries(r.Context(), "")
+	if err != nil {
+		return nil, err
+	}
+	dnsBy := map[string][]store.DNSQuery{}
+	for _, q := range queries {
+		dnsBy[q.Service] = append(dnsBy[q.Service], q)
+	}
 	by := map[string][]destView{}
 	for _, d := range dests {
 		by[d.Service] = append(by[d.Service], destView{
@@ -119,7 +128,7 @@ func (s *Server) load(r *http.Request) ([]serviceView, error) {
 	}
 	out := make([]serviceView, 0, len(svcs))
 	for _, sv := range svcs {
-		out = append(out, serviceView{Service: sv, Mode: s.Policy.ModeOf(sv.Name), Dests: by[sv.Name]})
+		out = append(out, serviceView{Service: sv, Mode: s.Policy.ModeOf(sv.Name), Dests: by[sv.Name], DNS: dnsBy[sv.Name]})
 	}
 	return out, nil
 }

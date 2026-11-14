@@ -5,6 +5,11 @@ learn_period: 7d
 proxy:
   listen: ":3128"
 
+# Resolver filtrado na rede apps. Em enforce, só resolve nomes da whitelist.
+dns:
+  listen: ":53"
+  # upstream: 1.1.1.1:53   # padrão: o DNS do próprio container (Docker)
+
 panel:
   listen: ":8080"
   # O painel recusa acessos vindos da rede dos serviços monitorados.

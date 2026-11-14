@@ -45,6 +45,7 @@ services:
     image: curlimages/curl:8.17.0
     restart: unless-stopped
     networks: [apps]
+    dns: [10.89.0.2]          # DNS filtrado do PoisonStop
     environment: &proxy_env
       HTTP_PROXY: http://poisonstop:3128
       HTTPS_PROXY: http://poisonstop:3128
@@ -70,6 +71,7 @@ services:
     image: curlimages/curl:8.17.0
     restart: unless-stopped
     networks: [apps]
+    dns: [10.89.0.2]
     environment: *proxy_env
     labels:
       poisonstop.service: worker
