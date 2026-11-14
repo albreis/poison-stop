@@ -26,7 +26,11 @@ services:
     volumes:
       - poisonstop-data:/data
       - ./poisonstop.yml:/etc/poisonstop.yml:ro
-    depends_on: [docker-proxy]
+    environment:
+      # Segredos de alerta sempre por variável de ambiente.
+      POISONSTOP_WEBHOOK_SECRET: ${POISONSTOP_WEBHOOK_SECRET:-troque-este-segredo}
+      POISONSTOP_TG_TOKEN: ${POISONSTOP_TG_TOKEN:-}
+    depends_on: [docker-proxy, alert-sink]
 
   # Acesso somente leitura à lista de containers, para mapear IP -> serviço.
   # Nunca monte o docker.sock direto no PoisonStop.
@@ -84,6 +88,15 @@ services:
           curl -s -m 5 --noproxy '*' -o /dev/null -w "sem-proxy %{http_code}\n" https://example.com/ || echo "sem-proxy: bloqueado pela rede (esperado)"
           sleep 30
         done
+
+  # Recebe os alertas do webhook e mostra no log:
+  #   docker compose logs -f alert-sink
+  alert-sink:
+    image: mendhak/http-https-echo:37
+    restart: unless-stopped
+    environment:
+      LOG_IGNORE_PATH: /healthz
+    networks: [egress]
 
 networks:
   apps:
