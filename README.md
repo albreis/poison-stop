@@ -102,7 +102,9 @@ Como funciona:
 - **Falha aberta:** se o PoisonStop não responder, o sidecar tira o desvio e as stacks voltam a sair direto; quando ele volta, o desvio volta. Ao derrubar o sidecar, as regras são removidas.
 - O sidecar só fala com o `docker-socket-proxy` (somente leitura, `CONTAINERS` e `NETWORKS`). O `docker.sock` nunca é montado com escrita.
 
-Limitações: TLS sem SNI (conexão para IP direto) não tem como ser repassado nesse modo e é recusado; portas diferentes de 80/443 e o DNS ainda não são desviados; só IPv4.
+- **Qualquer outro TCP** (SSH, SCP, rsync, FTP, SMTP, bancos externos...) também é desviado: o sidecar recebe a conexão por `REDIRECT`, descobre o destino original (`SO_ORIGINAL_DST`) e repassa ao PoisonStop com um cabeçalho PROXY protocol. O PoisonStop decide por serviço como no resto (learn/monitor/enforce) e registra como `tcp/ssh`, `tcp/ftp`, `tcp/smtp` etc. pela porta. Para liberar em `enforce`, a regra é `IP:porta` (ex.: `140.82.112.3:22`), porque aqui não existe nome de host.
+
+Limitações: TLS sem SNI (conexão para IP direto na 443) é recusado; destinos em faixas privadas (sua rede local) seguem direto; UDP (incluindo DNS) ainda não é desviado; só IPv4.
 
 ## Painel
 

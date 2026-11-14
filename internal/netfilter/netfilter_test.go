@@ -1,6 +1,7 @@
 package netfilter
 
 import (
+	"net"
 	"strings"
 	"testing"
 )
@@ -62,7 +63,7 @@ func TestApplyAndCleanup(t *testing.T) {
 		return "", nil
 	}
 	m := NewManager(run)
-	rules := Rules([]Network{{Name: "legado", Bridge: "br-aaaa", Subnet: "172.40.0.0/16"}}, "10.89.1.2", 3180, 3443)
+	rules := Rules([]Network{{Name: "legado", Bridge: "br-aaaa", Subnet: "172.40.0.0/16"}}, "10.89.1.2", 3180, 3443, 15001)
 	if err := m.Apply(rules); err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +74,7 @@ func TestApplyAndCleanup(t *testing.T) {
 		"-t nat -A POISONSTOP-PRE -d 10.0.0.0/8 -j RETURN",
 		"-t nat -A POISONSTOP-PRE -i br-aaaa -p tcp --dport 443 -j DNAT --to-destination 10.89.1.2:3443",
 		"-t nat -A POISONSTOP-POST -s 172.40.0.0/16 -d 10.89.1.2 -j ACCEPT",
+		"-t nat -A POISONSTOP-PRE -i br-aaaa -p tcp -j REDIRECT --to-ports 15001",
 	} {
 		if !strings.Contains(all, want) {
 			t.Errorf("faltou: %s", want)
@@ -100,3 +102,10 @@ type fakeErr struct{}
 func (fakeErr) Error() string { return "fake" }
 
 var errFake = fakeErr{}
+
+func TestProxyHeader(t *testing.T) {
+	h := ProxyHeader(&net.TCPAddr{IP: net.ParseIP("172.19.0.7"), Port: 40000}, &net.TCPAddr{IP: net.ParseIP("140.82.112.3"), Port: 22})
+	if h != "PROXY TCP4 172.19.0.7 140.82.112.3 40000 22\r\n" {
+		t.Errorf("cabeçalho: %q", h)
+	}
+}
