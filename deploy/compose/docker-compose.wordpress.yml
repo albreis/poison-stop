@@ -1,0 +1,75 @@
+# WordPress de teste dentro da rede monitorada.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.wordpress.yml up -d
+#   abra http://localhost:8097
+#
+# O WordPress fica só na rede "apps" (internal): toda chamada para fora
+# (atualizações, plugins, temas, APIs) passa pelo PoisonStop. O Caddy é só a
+# porta de entrada do navegador e não tem acesso à rede de saída do WordPress.
+services:
+  wordpress:
+    image: wordpress:6-php8.3-apache
+    restart: unless-stopped
+    networks: [apps]
+    dns: [10.89.0.2]
+    depends_on: [db, poisonstop]
+    labels:
+      poisonstop.service: wordpress
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wp
+      WORDPRESS_DB_PASSWORD: wp-teste
+      WORDPRESS_DB_NAME: wordpress
+      # WP_Http usa estas constantes; o curl do PHP também lê as variáveis.
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_PROXY_HOST', 'poisonstop');
+        define('WP_PROXY_PORT', '3128');
+        define('WP_PROXY_BYPASS_HOSTS', 'localhost,127.0.0.1,db');
+        define('WP_HOME', 'http://localhost:8097');
+        define('WP_SITEURL', 'http://localhost:8097');
+      HTTP_PROXY: http://poisonstop:3128
+      HTTPS_PROXY: http://poisonstop:3128
+      http_proxy: http://poisonstop:3128
+      https_proxy: http://poisonstop:3128
+      NO_PROXY: localhost,127.0.0.1,db
+      no_proxy: localhost,127.0.0.1,db
+    # O Apache também escuta na 8097 para as chamadas de loopback do
+    # WordPress (wp-cron, Saúde do site) para http://localhost:8097.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        grep -q 'Listen 8097' /etc/apache2/ports.conf || echo 'Listen 8097' >> /etc/apache2/ports.conf
+        sed -i 's/<VirtualHost \*:80>/<VirtualHost *:80 *:8097>/' /etc/apache2/sites-enabled/000-default.conf
+        exec docker-entrypoint.sh apache2-foreground
+    volumes:
+      - wp-html:/var/www/html
+
+  db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    networks: [apps]
+    labels:
+      poisonstop.service: db
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wp
+      MARIADB_PASSWORD: wp-teste
+      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+    volumes:
+      - wp-db:/var/lib/mysql
+
+  # Porta de entrada do navegador (rede "front" para publicar a porta).
+  wp-front:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    networks: [apps, front]
+    ports:
+      - "127.0.0.1:8097:80"
+    command: ["caddy", "reverse-proxy", "--from", ":80", "--to", "wordpress:80"]
+
+networks:
+  front: {}
+
+volumes:
+  wp-html:
+  wp-db:
