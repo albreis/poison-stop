@@ -258,3 +258,24 @@ func (s *Store) BlockedSince(ctx context.Context, t time.Time) (map[string]int64
 	}
 	return out, rows.Err()
 }
+
+// DeleteServiceHistory apaga o histórico de um serviço (destinos, horas,
+// DNS). As regras dele ficam.
+func (s *Store) DeleteServiceHistory(ctx context.Context, service string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, q := range []string{
+		`DELETE FROM destinations WHERE service=?`,
+		`DELETE FROM hourly WHERE service=?`,
+		`DELETE FROM dns_queries WHERE service=?`,
+		`DELETE FROM services WHERE name=?`,
+	} {
+		if _, err := tx.Exec(q, service); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

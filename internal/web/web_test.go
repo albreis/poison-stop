@@ -199,3 +199,31 @@ func TestServiceNameWithSlash(t *testing.T) {
 		t.Error("aprovar regra em serviço com barra não funcionou")
 	}
 }
+
+func TestGroupByStack(t *testing.T) {
+	e := setup(t)
+	e.st.Record(store.Event{Service: "meuchefe/worker", Stack: "meuchefe", ClientIP: "172.19.0.7", Host: "api.deepseek.com", Port: 443, Proto: "tls"})
+	e.st.Record(store.Event{Service: "meuchefe/web", Stack: "meuchefe", ClientIP: "172.19.0.3", Host: "example.com", Port: 443, Proto: "tls"})
+	e.st.Record(store.Event{Service: "solto", ClientIP: "172.30.0.9", Host: "example.com", Port: 80, Proto: "http"})
+	e.post(t, "/login", url.Values{"username": {"admin"}, "password": {"senha-forte"}})
+	body := waitBody(t, e, "/", "solto")
+	i, j, k := strings.Index(body, "<code>meuchefe</code>"), strings.Index(body, "<code>worker</code>"), strings.Index(body, "Sem stack")
+	if i < 0 || j < 0 || k < 0 || !(i < j && j < k) {
+		t.Errorf("agrupamento errado: stack=%d worker=%d sem-stack=%d", i, j, k)
+	}
+}
+
+func TestForgetService(t *testing.T) {
+	e := setup(t)
+	e.st.Record(store.Event{Service: "velho", ClientIP: "172.30.0.9", Host: "example.com", Port: 80, Proto: "http"})
+	e.post(t, "/login", url.Values{"username": {"admin"}, "password": {"senha-forte"}})
+	waitBody(t, e, "/", "velho")
+	e.post(t, "/service/velho/forget", nil)
+	if _, b := e.get(t, "/"); strings.Contains(b, "velho") && !strings.Contains(b, "Histórico de velho apagado") {
+		t.Error("serviço deveria sumir da visão geral")
+	}
+	svcs, _ := e.st.Services(context.Background())
+	if len(svcs) != 0 {
+		t.Errorf("histórico não apagado: %+v", svcs)
+	}
+}

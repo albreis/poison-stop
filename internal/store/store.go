@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 type Event struct {
 	Time        time.Time
 	Service     string
+	Stack       string // projeto do Compose, quando conhecido
 	ClientIP    string
 	Host        string
 	Port        int
@@ -49,6 +51,7 @@ type Destination struct {
 // Service é o resumo de um serviço.
 type Service struct {
 	Name      string
+	Stack     string // projeto do Compose ("" se não souber)
 	LastIP    string
 	FirstSeen time.Time
 	LastSeen  time.Time
@@ -122,6 +125,12 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema + rulesSchema); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("criando schema: %w", err)
+	}
+	// migração: coluna stack (projeto do Compose) em bancos antigos
+	if _, err := db.Exec(`ALTER TABLE services ADD COLUMN stack TEXT NOT NULL DEFAULT ''`); err != nil &&
+		!strings.Contains(err.Error(), "duplicate column") {
+		db.Close()
+		return nil, fmt.Errorf("migrando schema: %w", err)
 	}
 	s := &Store{db: db, events: make(chan any, 4096), done: make(chan struct{})}
 	go s.writer()
@@ -218,9 +227,7 @@ func (s *Store) write(batch []any) error {
 		}
 		e := item.(Event)
 		ts := e.Time.Unix()
-		if _, err := tx.Exec(`INSERT INTO services(name, last_ip, first_seen, last_seen) VALUES(?,?,?,?)
-			ON CONFLICT(name) DO UPDATE SET last_ip=excluded.last_ip, last_seen=MAX(last_seen, excluded.last_seen)`,
-			e.Service, e.ClientIP, ts, ts); err != nil {
+		if err := upsertService(tx, e.Service, e.Stack, e.ClientIP, ts); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT INTO destinations(service, host, port, proto, first_seen, last_seen, hits, blocked, bytes_out, bytes_in, sni_mismatch)
@@ -252,6 +259,7 @@ func (s *Store) write(batch []any) error {
 type DNSEvent struct {
 	Time     time.Time
 	Service  string
+	Stack    string
 	ClientIP string
 	Name     string
 	QType    string
@@ -279,11 +287,17 @@ func (s *Store) RecordDNS(e DNSEvent) {
 	}
 }
 
+func upsertService(tx *sql.Tx, name, stack, ip string, ts int64) error {
+	_, err := tx.Exec(`INSERT INTO services(name, stack, last_ip, first_seen, last_seen) VALUES(?,?,?,?,?)
+		ON CONFLICT(name) DO UPDATE SET last_ip=excluded.last_ip, last_seen=MAX(last_seen, excluded.last_seen),
+			stack=CASE WHEN excluded.stack != '' THEN excluded.stack ELSE stack END`,
+		name, stack, ip, ts, ts)
+	return err
+}
+
 func writeDNS(tx *sql.Tx, e DNSEvent) error {
 	ts := e.Time.Unix()
-	if _, err := tx.Exec(`INSERT INTO services(name, last_ip, first_seen, last_seen) VALUES(?,?,?,?)
-		ON CONFLICT(name) DO UPDATE SET last_ip=excluded.last_ip, last_seen=MAX(last_seen, excluded.last_seen)`,
-		e.Service, e.ClientIP, ts, ts); err != nil {
+	if err := upsertService(tx, e.Service, e.Stack, e.ClientIP, ts); err != nil {
 		return err
 	}
 	_, err := tx.Exec(`INSERT INTO dns_queries(service, name, qtype, first_seen, last_seen, hits, denied)
@@ -324,7 +338,7 @@ func (s *Store) DNSQueries(ctx context.Context, service string) ([]DNSQuery, err
 // Services lista os serviços vistos, mais recentes primeiro.
 func (s *Store) Services(ctx context.Context) ([]Service, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT s.name, s.last_ip, s.first_seen, s.last_seen,
+		SELECT s.name, s.stack, s.last_ip, s.first_seen, s.last_seen,
 		       COUNT(DISTINCT d.host || ':' || d.port), COALESCE(SUM(d.hits),0), COALESCE(SUM(d.blocked),0)
 		FROM services s LEFT JOIN destinations d ON d.service = s.name
 		GROUP BY s.name ORDER BY s.last_seen DESC`)
@@ -336,7 +350,7 @@ func (s *Store) Services(ctx context.Context) ([]Service, error) {
 	for rows.Next() {
 		var v Service
 		var fs, ls int64
-		if err := rows.Scan(&v.Name, &v.LastIP, &fs, &ls, &v.Hosts, &v.Hits, &v.Blocked); err != nil {
+		if err := rows.Scan(&v.Name, &v.Stack, &v.LastIP, &fs, &ls, &v.Hosts, &v.Hits, &v.Blocked); err != nil {
 			return nil, err
 		}
 		v.FirstSeen, v.LastSeen = time.Unix(fs, 0), time.Unix(ls, 0)

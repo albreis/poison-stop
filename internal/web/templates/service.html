@@ -112,4 +112,10 @@
   </div>
 </section>
 {{- end}}
+<section class="card">
+  <form method="post" action="/service/{{path .Name}}/forget" class="pad row">
+    <span class="meta">Serviço antigo ou renomeado? Apague o histórico dele (as regras ficam).</span>
+    <button class="danger" type="submit">Apagar histórico</button>
+  </form>
+</section>
 {{end}}

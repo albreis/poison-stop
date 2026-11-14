@@ -109,6 +109,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	watcher.Stacks = id
 	px := proxy.New(pol, id, watcher)
 
 	panel, err := web.New(st, pol, cfg.Panel.DenyCIDRs, time.Duration(cfg.LearnPeriod))

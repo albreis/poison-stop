@@ -8,20 +8,31 @@
   <div class="stat"><b>{{.Blocked24h}}</b><span>bloqueio(s) nas últimas 24h</span></div>
 </div>
 
-<section class="card">
 {{- if not .Services}}
+<section class="card">
   <div class="empty">
     Nenhuma conexão registrada ainda.<br>
-    Aponte <code>HTTP_PROXY</code> e <code>HTTPS_PROXY</code> dos seus serviços para <code>http://poisonstop:3128</code>.
+    Com o modo transparente ligado, toda stack aparece aqui na primeira chamada para fora.
   </div>
-{{- else}}
+</section>
+{{- end}}
+{{- range .Groups}}
+<section class="card">
+  <div class="head">
+    <h2>{{if .Name}}<code>{{.Name}}</code>{{else}}Sem stack{{end}}</h2>
+    <div class="meta">
+      {{len .Rows}} serviço(s) · {{.Hits}} conexão(ões)
+      {{- if .Blocked24h}} · <strong>{{.Blocked24h}} bloqueio(s) em 24h</strong>{{end}}
+      {{- range $mode, $n := .Modes}} · {{$n}} em <span class="mode mode-{{$mode}}">{{$mode}}</span>{{end}}
+    </div>
+  </div>
   <div class="scroll">
   <table>
     <thead><tr><th>Serviço</th><th>Modo</th><th class="num">Destinos</th><th class="num">Na whitelist</th><th class="num">Conexões</th><th class="num">Bloqueios 24h</th><th>Visto</th></tr></thead>
     <tbody>
-    {{- range .Services}}
+    {{- range .Rows}}
       <tr>
-        <td><a href="/service/{{path .Name}}"><code>{{.Name}}</code></a>
+        <td><a href="/service/{{path .Name}}"><code>{{.Short}}</code></a>
           {{- if .LearnLeft}}<span class="tag tag-ok">{{.LearnLeft}}</span>{{end}}</td>
         <td><span class="mode mode-{{.Mode}}">{{.Mode}}</span></td>
         <td class="num">{{.Hosts}}</td>
@@ -34,6 +45,6 @@
     </tbody>
   </table>
   </div>
-{{- end}}
 </section>
+{{- end}}
 {{end}}

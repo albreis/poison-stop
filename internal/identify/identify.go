@@ -25,6 +25,7 @@ type Identifier struct {
 	refreshMu   sync.Mutex // serializa consultas ao Docker
 	mu          sync.RWMutex
 	cache       map[string]string
+	stacks      map[string]string // nome do serviço -> projeto do Compose
 	lastRefresh time.Time
 }
 
@@ -41,6 +42,7 @@ func New(dockerHost string, static map[string]string) *Identifier {
 		dockerHost: strings.TrimRight(dockerHost, "/"),
 		client:     &http.Client{Timeout: 3 * time.Second},
 		cache:      map[string]string{},
+		stacks:     map[string]string{},
 	}
 }
 
@@ -110,7 +112,7 @@ func (i *Identifier) refresh() {
 	if fresh {
 		return // outro goroutine acabou de atualizar
 	}
-	m, err := i.fetch()
+	m, stacks, err := i.fetch()
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	i.lastRefresh = time.Now()
@@ -119,35 +121,49 @@ func (i *Identifier) refresh() {
 		return
 	}
 	i.cache = m
+	for k, v := range stacks {
+		i.stacks[k] = v
+	}
 }
 
-func (i *Identifier) fetch() (map[string]string, error) {
+// StackOf devolve o projeto do Compose de um serviço já visto ("" se não souber).
+func (i *Identifier) StackOf(service string) string {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.stacks[service]
+}
+
+func (i *Identifier) fetch() (map[string]string, map[string]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, i.dockerHost+"/containers/json", nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	resp, err := i.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("docker respondeu %s", resp.Status)
+		return nil, nil, fmt.Errorf("docker respondeu %s", resp.Status)
 	}
 	var cs []container
 	if err := json.NewDecoder(resp.Body).Decode(&cs); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	m := map[string]string{}
+	stacks := map[string]string{}
 	for _, c := range cs {
 		name := ServiceName(c.Labels, c.Names)
+		if p := c.Labels["com.docker.compose.project"]; p != "" {
+			stacks[name] = p
+		}
 		for _, n := range c.NetworkSettings.Networks {
 			if n.IPAddress != "" {
 				m[n.IPAddress] = name
 			}
 		}
 	}
-	return m, nil
+	return m, stacks, nil
 }

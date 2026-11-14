@@ -25,7 +25,9 @@ type Sink interface {
 //   - learn: depois do learn_period do serviço, um destino nunca visto alerta
 //     como "destino novo" (o melhor sinal de comprometimento que existe).
 type Watcher struct {
-	Next        Sink
+	Next Sink
+	// Stacks, se definido, diz o projeto do Compose de um serviço.
+	Stacks      interface{ StackOf(string) string }
 	Notifier    *Notifier
 	Policy      *policy.Engine
 	LearnPeriod time.Duration
@@ -61,6 +63,9 @@ func destKey(svc, host string, port int) string { return fmt.Sprintf("%s|%s|%d",
 
 // Record implementa proxy.Recorder.
 func (w *Watcher) Record(e store.Event) {
+	if w.Stacks != nil && e.Stack == "" {
+		e.Stack = w.Stacks.StackOf(e.Service)
+	}
 	w.Next.Record(e)
 
 	now := w.now()
@@ -104,6 +109,9 @@ func (w *Watcher) Record(e store.Event) {
 
 // RecordDNS implementa dns.Recorder.
 func (w *Watcher) RecordDNS(e store.DNSEvent) {
+	if w.Stacks != nil && e.Stack == "" {
+		e.Stack = w.Stacks.StackOf(e.Service)
+	}
 	w.Next.RecordDNS(e)
 	if !e.Denied {
 		return

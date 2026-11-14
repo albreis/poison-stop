@@ -13,7 +13,7 @@ func TestIdentifyDocker(t *testing.T) {
 			return
 		}
 		w.Write([]byte(`[
-			{"Names":["/demo-app-1"],"Labels":{"poisonstop.service":"loja","com.docker.compose.service":"app"},
+			{"Names":["/demo-app-1"],"Labels":{"poisonstop.service":"loja","com.docker.compose.service":"app","com.docker.compose.project":"demo"},
 			 "NetworkSettings":{"Networks":{"demo_apps":{"IPAddress":"172.30.0.10"}}}},
 			{"Names":["/demo-worker-1"],"Labels":{"com.docker.compose.service":"worker","com.docker.compose.project":"meuchefe"},
 			 "NetworkSettings":{"Networks":{"demo_apps":{"IPAddress":"172.30.0.11"}}}}
@@ -31,5 +31,8 @@ func TestIdentifyDocker(t *testing.T) {
 		if got := id.Identify(ip); got != want {
 			t.Errorf("Identify(%s) = %q, quer %q", ip, got, want)
 		}
+	}
+	if id.StackOf("loja") != "demo" || id.StackOf("meuchefe/worker") != "meuchefe" || id.StackOf("fixo") != "" {
+		t.Errorf("stacks erradas: %q %q", id.StackOf("loja"), id.StackOf("meuchefe/worker"))
 	}
 }

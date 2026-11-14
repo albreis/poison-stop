@@ -89,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	auth.HandleFunc("POST /service/{name}/mode", s.setMode)
 	auth.HandleFunc("POST /service/{name}/allow", s.addAllow)
 	auth.HandleFunc("POST /service/{name}/remove", s.removeAllow)
+	auth.HandleFunc("POST /service/{name}/forget", s.forget)
 	auth.HandleFunc("GET /blocks", s.blocks)
 	auth.HandleFunc("GET /whitelist", s.whitelist)
 	auth.HandleFunc("GET /whitelist.yaml", s.exportYAML)
@@ -248,10 +249,46 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 
 type serviceRow struct {
 	store.Service
+	Short      string // nome sem o prefixo "stack/"
 	Mode       string
 	Blocked24h int64
 	Allowed    int
 	LearnLeft  string
+}
+
+type stackGroup struct {
+	Name       string // "" = sem stack
+	Rows       []serviceRow
+	Hits       int64
+	Blocked24h int64
+	Modes      map[string]int
+}
+
+// groupByStack agrupa os serviços pelo projeto do Compose. Stacks em ordem
+// alfabética; serviços sem stack conhecida ficam por último.
+func groupByStack(rows []serviceRow) []stackGroup {
+	idx := map[string]int{}
+	var groups []stackGroup
+	for _, r := range rows {
+		i, ok := idx[r.Stack]
+		if !ok {
+			i = len(groups)
+			idx[r.Stack] = i
+			groups = append(groups, stackGroup{Name: r.Stack, Modes: map[string]int{}})
+		}
+		g := &groups[i]
+		g.Rows = append(g.Rows, r)
+		g.Hits += r.Hits
+		g.Blocked24h += r.Blocked24h
+		g.Modes[r.Mode]++
+	}
+	sort.SliceStable(groups, func(a, b int) bool {
+		if (groups[a].Name == "") != (groups[b].Name == "") {
+			return groups[b].Name == ""
+		}
+		return groups[a].Name < groups[b].Name
+	})
+	return groups
 }
 
 func (s *Server) learnLeft(svc store.Service, mode string) string {
@@ -284,11 +321,15 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	var total int64
 	for _, sv := range svcs {
 		mode := s.Policy.ModeOf(sv.Name)
-		rows = append(rows, serviceRow{Service: sv, Mode: mode, Blocked24h: blocked[sv.Name],
+		short := strings.TrimPrefix(sv.Name, sv.Stack+"/")
+		if sv.Stack == "" {
+			short = sv.Name
+		}
+		rows = append(rows, serviceRow{Service: sv, Short: short, Mode: mode, Blocked24h: blocked[sv.Name],
 			Allowed: len(rules[sv.Name].Allow), LearnLeft: s.learnLeft(sv, mode)})
 		total += blocked[sv.Name]
 	}
-	s.render(w, r, "index.html", map[string]any{"Services": rows, "Blocked24h": total, "DefaultMode": s.Policy.DefaultMode()})
+	s.render(w, r, "index.html", map[string]any{"Services": rows, "Groups": groupByStack(rows), "Blocked24h": total, "DefaultMode": s.Policy.DefaultMode()})
 }
 
 // --- serviço ---
@@ -443,6 +484,16 @@ func (s *Server) removeAllow(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("regra removida pelo painel", "user", userOf(r), "service", name, "rule", rule)
 	back(w, r, "/service/"+url.PathEscape(name), "Regra removida.")
+}
+
+func (s *Server) forget(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if err := s.Store.DeleteServiceHistory(r.Context(), name); err != nil {
+		s.fail(w, err)
+		return
+	}
+	slog.Info("histórico apagado pelo painel", "user", userOf(r), "service", name)
+	back(w, r, "/", "Histórico de "+name+" apagado.")
 }
 
 // --- bloqueios ---
