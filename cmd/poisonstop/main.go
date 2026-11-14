@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/albreis/poison-stop/internal/config"
+	"github.com/albreis/poison-stop/internal/dns"
 	"github.com/albreis/poison-stop/internal/identify"
 	"github.com/albreis/poison-stop/internal/policy"
 	"github.com/albreis/poison-stop/internal/proxy"
@@ -75,11 +76,20 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	errc := make(chan error, 2)
+	errc := make(chan error, 3)
 	go func() {
 		slog.Info("proxy ouvindo", "addr", cfg.Proxy.Listen)
 		errc <- px.ListenAndServe(ctx, cfg.Proxy.Listen)
 	}()
+	if cfg.DNS.Listen != "" {
+		resolver := dns.New(pol, id, st, cfg.DNS.Upstream)
+		go func() {
+			slog.Info("DNS ouvindo", "addr", cfg.DNS.Listen, "upstream", resolver.Upstream)
+			if err := resolver.ListenAndServe(ctx, cfg.DNS.Listen); err != nil {
+				errc <- fmt.Errorf("DNS: %w", err)
+			}
+		}()
+	}
 	go func() {
 		srv := &http.Server{Addr: cfg.Panel.Listen, Handler: panel.Handler(), ReadHeaderTimeout: 10 * time.Second}
 		go func() {

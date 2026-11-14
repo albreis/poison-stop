@@ -6,7 +6,7 @@ Proxy de saída (egress) com painel para Docker. Ele registra para onde cada ser
 
 O objetivo é fechar a porta mais usada por pacotes envenenados e RCEs: mesmo que o código malicioso leia suas chaves, ele não consegue mandá-las para fora.
 
-**Status:** primeira entrega testável. O proxy explícito grava em SQLite para onde cada serviço fala, e o painel mostra serviço → hosts. Os modos `monitor` e `enforce` já funcionam pelo `poisonstop.yml`; DNS filtrado, alertas, login e edição da whitelist pelo painel vêm a seguir (veja o [roadmap](docs/ESPECIFICACAO.md#6-roadmap)).
+**Status:** primeira entrega testável. O proxy explícito e o DNS filtrado gravam em SQLite para onde cada serviço fala, e o painel mostra serviço → hosts e as consultas DNS. Os modos `monitor` e `enforce` já funcionam pelo `poisonstop.yml`; alertas, login e edição da whitelist pelo painel vêm a seguir (veja o [roadmap](docs/ESPECIFICACAO.md#6-roadmap)).
 
 Leia a especificação completa em [docs/ESPECIFICACAO.md](docs/ESPECIFICACAO.md).
 
@@ -59,6 +59,7 @@ docker compose down
 - **HTTP:** o proxy lê o host da URL e decide.
 - **HTTPS:** o proxy recebe `CONNECT host:443`, decide pelo host e **não abre o TLS**. Ele lê o SNI do ClientHello e marca (ou, em `enforce`, derruba) a conexão se o SNI não bater com o host pedido.
 - **Qual serviço é qual:** pelo IP de origem, consultando a API do Docker somente leitura através de um [docker-socket-proxy](https://github.com/Tecnativa/docker-socket-proxy) (nunca monte `/var/run/docker.sock` direto no PoisonStop). O nome exibido é a label `poisonstop.service`, senão o serviço do Compose. Sem Docker, dá para mapear IPs fixos em `identify.static_ips`.
+- **DNS filtrado:** os serviços usam `dns: [10.89.0.2]` (o IP do PoisonStop na rede `apps`). Todas as consultas são registradas, inclusive as negadas; em `enforce`, só nomes da whitelist resolvem e o resto recebe `NXDOMAIN`. Como a rede é `internal`, o container não consegue usar outro DNS (ex.: `8.8.8.8`), o que fecha o caminho do DNS tunneling. Nomes de containers continuam resolvidos pelo DNS embutido do Docker.
 - Tudo vai para um SQLite (modo WAL) em `/data`, com totais por destino e por hora.
 - O painel recusa acessos vindos das redes em `panel.deny_cidrs` (a rede dos serviços monitorados) e deve ser publicado só em `127.0.0.1` ou atrás de VPN.
 
@@ -70,6 +71,9 @@ learn_period: 7d
 
 proxy:
   listen: ":3128"
+dns:
+  listen: ":53"                  # vazio desliga
+  # upstream: 1.1.1.1:53         # padrão: DNS do próprio container
 panel:
   listen: ":8080"
   deny_cidrs: ["10.89.0.0/24"]   # rede "apps"
@@ -95,7 +99,7 @@ services:
 |---|---|
 | `learn` | Deixa tudo passar e registra. |
 | `monitor` | Deixa tudo passar, mas marca o que está fora da whitelist. |
-| `enforce` | Só passa o que está na whitelist. HTTP recebe 403; `CONNECT` recebe 403. IP direto sem nome é bloqueado. |
+| `enforce` | Só passa o que está na whitelist. HTTP recebe 403; `CONNECT` recebe 403. IP direto sem nome é bloqueado. O DNS só resolve nomes da whitelist. |
 
 Regras da whitelist: host exato com porta (`api.stripe.com:443`). Wildcard só quando escrito explicitamente (`*.dominio:443`) e só casa subdomínios. Liberar `*.googleapis.com` deixa o atacante mandar dados para um bucket **dele** dentro do Google, então prefira o host exato.
 
@@ -117,7 +121,7 @@ internal/identify/    IP de origem -> serviço (Docker / IPs fixos)
 internal/policy/      modos, whitelist, hosts suspeitos
 internal/store/       SQLite
 internal/web/         painel (templates embutidos)
-internal/dns/         resolver filtrado (a fazer)
+internal/dns/         resolver filtrado
 internal/alerts/      Telegram, webhook (a fazer)
 deploy/compose/       docker-compose.yml de exemplo
 docs/                 especificação

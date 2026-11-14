@@ -53,6 +53,27 @@ func TestDecide(t *testing.T) {
 	}
 }
 
+func TestDecideName(t *testing.T) {
+	cfg := config.Default()
+	cfg.Services["app"] = config.ServiceConfig{Mode: "enforce", Allow: []string{"api.stripe.com:443", "*.s3.amazonaws.com:443", "vault.interno:8200"}}
+	e := New(cfg)
+	for name, want := range map[string]bool{
+		"api.stripe.com":          true,
+		"API.STRIPE.COM.":         true,
+		"vault.interno":           true,
+		"bucket.s3.amazonaws.com": true,
+		"s3.amazonaws.com":        false,
+		"a8f3k2.evil.com":         false,
+	} {
+		if got := e.DecideName("app", name).Allowed; got != want {
+			t.Errorf("DecideName(app, %s) = %v, quer %v", name, got, want)
+		}
+	}
+	if !e.DecideName("outro", "qualquer.com").Allowed {
+		t.Error("serviço em learn deveria resolver tudo")
+	}
+}
+
 func TestSuspicious(t *testing.T) {
 	if len(Suspicious("api.stripe.com")) != 0 {
 		t.Error("stripe não é suspeito")

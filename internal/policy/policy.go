@@ -63,6 +63,44 @@ func (e *Engine) Decide(service, host string, port int) Decision {
 	return d
 }
 
+// DecideName avalia uma consulta DNS: em enforce só resolve nomes que
+// aparecem em alguma regra da whitelist (qualquer porta).
+func (e *Engine) DecideName(service, name string) Decision {
+	mode := e.ModeOf(service)
+	listed := NameListed(e.cfg.Services[service].Allow, name)
+	d := Decision{Mode: mode, Listed: listed, Allowed: true}
+	switch {
+	case mode == Learn:
+		d.Reason = "learn"
+	case listed:
+		d.Reason = "na whitelist"
+	case mode == Monitor:
+		d.Reason = "fora da whitelist (monitor)"
+	default:
+		d.Allowed = false
+		d.Reason = "fora da whitelist"
+	}
+	return d
+}
+
+// NameListed diz se o nome bate com o host de alguma regra, ignorando a porta.
+func NameListed(allow []string, name string) bool {
+	name = normalize(name)
+	for _, rule := range allow {
+		rh, _ := splitRule(rule)
+		if strings.HasPrefix(rh, "*.") {
+			if strings.HasSuffix(name, rh[1:]) && len(name) > len(rh)-1 {
+				return true
+			}
+			continue
+		}
+		if rh == name {
+			return true
+		}
+	}
+	return false
+}
+
 // Listed diz se host:port bate com alguma regra da lista.
 //
 // Regras: "host:porta", "host" (porta 443) ou "*.dominio:porta".

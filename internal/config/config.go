@@ -18,6 +18,7 @@ type Config struct {
 	LearnPeriod Duration                  `yaml:"learn_period"`
 	Services    map[string]ServiceConfig  `yaml:"services"`
 	Proxy       ProxyConfig               `yaml:"proxy"`
+	DNS         DNSConfig                 `yaml:"dns"`
 	Panel       PanelConfig               `yaml:"panel"`
 	Identify    IdentifyConfig            `yaml:"identify"`
 	Data        DataConfig                `yaml:"data"`
@@ -33,6 +34,15 @@ type ServiceConfig struct {
 // ProxyConfig configura o proxy explícito.
 type ProxyConfig struct {
 	Listen string `yaml:"listen"`
+}
+
+// DNSConfig configura o resolver filtrado.
+type DNSConfig struct {
+	// Listen é o endereço do resolver (UDP e TCP). Vazio desliga.
+	Listen string `yaml:"listen"`
+	// Upstream é o resolver de verdade (host:porta). Vazio usa o
+	// /etc/resolv.conf do container.
+	Upstream string `yaml:"upstream"`
 }
 
 // PanelConfig configura o painel.
@@ -89,6 +99,7 @@ func Default() *Config {
 		LearnPeriod: Duration(7 * 24 * time.Hour),
 		Services:    map[string]ServiceConfig{},
 		Proxy:       ProxyConfig{Listen: ":3128"},
+		DNS:         DNSConfig{Listen: ":53"},
 		Panel:       PanelConfig{Listen: ":8080"},
 		Data:        DataConfig{Path: "/data/poisonstop.db"},
 	}
