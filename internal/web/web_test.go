@@ -182,3 +182,20 @@ func TestDenyAppsNetwork(t *testing.T) {
 		t.Errorf("acesso da rede apps deveria ser recusado, veio %d", rr.Code)
 	}
 }
+
+func TestServiceNameWithSlash(t *testing.T) {
+	e := setup(t)
+	e.st.Record(store.Event{Service: "meuchefe/worker", ClientIP: "172.19.0.7", Host: "api.deepseek.com", Port: 443, Proto: "tls"})
+	e.post(t, "/login", url.Values{"username": {"admin"}, "password": {"senha-forte"}})
+	body := waitBody(t, e, "/", "meuchefe/worker")
+	if !strings.Contains(body, `href="/service/meuchefe%2fworker"`) && !strings.Contains(body, `href="/service/meuchefe%2Fworker"`) {
+		t.Fatalf("link do serviço com barra errado")
+	}
+	if _, b := e.get(t, "/service/meuchefe%2Fworker"); !strings.Contains(b, "api.deepseek.com:443") {
+		t.Fatal("página do serviço com barra não abriu")
+	}
+	e.post(t, "/service/meuchefe%2Fworker/allow", url.Values{"rule": {"api.deepseek.com:443"}})
+	if !e.pol.Decide("meuchefe/worker", "api.deepseek.com", 443).Listed {
+		t.Error("aprovar regra em serviço com barra não funcionou")
+	}
+}

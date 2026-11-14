@@ -82,13 +82,17 @@ type container struct {
 	} `json:"NetworkSettings"`
 }
 
-// ServiceName escolhe o nome exibido: label poisonstop.service, senão o
-// serviço do Compose, senão o nome do container.
+// ServiceName escolhe o nome exibido: label poisonstop.service, senão
+// "projeto/serviço" do Compose (para "worker" de duas stacks não se
+// misturarem), senão o nome do container.
 func ServiceName(labels map[string]string, names []string) string {
 	if v := labels["poisonstop.service"]; v != "" {
 		return v
 	}
 	if v := labels["com.docker.compose.service"]; v != "" {
+		if p := labels["com.docker.compose.project"]; p != "" {
+			return p + "/" + v
+		}
 		return v
 	}
 	if len(names) > 0 {

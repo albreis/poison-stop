@@ -15,7 +15,7 @@ func TestIdentifyDocker(t *testing.T) {
 		w.Write([]byte(`[
 			{"Names":["/demo-app-1"],"Labels":{"poisonstop.service":"loja","com.docker.compose.service":"app"},
 			 "NetworkSettings":{"Networks":{"demo_apps":{"IPAddress":"172.30.0.10"}}}},
-			{"Names":["/demo-worker-1"],"Labels":{"com.docker.compose.service":"worker"},
+			{"Names":["/demo-worker-1"],"Labels":{"com.docker.compose.service":"worker","com.docker.compose.project":"meuchefe"},
 			 "NetworkSettings":{"Networks":{"demo_apps":{"IPAddress":"172.30.0.11"}}}}
 		]`))
 	}))
@@ -24,7 +24,7 @@ func TestIdentifyDocker(t *testing.T) {
 	id := New(srv.URL, map[string]string{"172.30.0.99": "fixo"})
 	for ip, want := range map[string]string{
 		"172.30.0.10": "loja",
-		"172.30.0.11": "worker",
+		"172.30.0.11": "meuchefe/worker",
 		"172.30.0.99": "fixo",
 		"172.30.0.50": "ip:172.30.0.50",
 	} {
