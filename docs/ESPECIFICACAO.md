@@ -15,7 +15,7 @@ Status: ideia / especificação do MVP · Data: 2026-11-14 · Autor: Everaldo
 - Tagline sugerida: *"Your dependencies can read your secrets. They just can't send them anywhere."*
 - Variação curta, se precisar: **PStop** (para comandos ou logs).
 
-O nome conversa direto com o problema: pacote envenenado (supply chain) que tenta mandar dados para fora. Antes de criar, vale conferir se `poisonstop` está livre no GitHub, no Docker Hub e como domínio.
+O nome conversa direto com o problema: pacote envenenado (supply chain) que tenta mandar dados para fora.
 
 ---
 
@@ -264,7 +264,7 @@ Alternativa: **AGPL-3.0**, se a preocupação for alguém pegar o projeto e vend
 
 ## 8. Primeiros passos para criar o repositório
 
-1. Adicionar a licença Apache-2.0 ao repositório `albreis/poison-stop` e completar o README e um README curto usando a seção 2 deste documento.
+1. Adicionar a licença Apache-2.0 ao repositório e completar o README com a seção 2 deste documento.
 2. Estrutura inicial:
    ```
    cmd/poisonstop/       main.go
