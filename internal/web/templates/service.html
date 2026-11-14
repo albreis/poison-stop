@@ -1,0 +1,115 @@
+{{define "title"}}{{.Name}}{{end}}
+{{define "content"}}
+<h1><code>{{.Name}}</code> <span class="mode mode-{{.Mode}}">{{.Mode}}</span></h1>
+<p class="sub">
+  {{- if .Info.Name}}Visto pela primeira vez em {{when .Info.FirstSeen}} · último IP {{.Info.LastIP}}{{end}}
+  {{- if .LearnLeft}} · {{.LearnLeft}}{{end}}
+</p>
+
+<section class="card">
+  <div class="head row">
+    <h2>Modo</h2>
+    <form method="post" action="/service/{{path .Name}}/mode" class="row">
+      <select name="mode">
+        <option value="" {{if eq .ExplicitMode ""}}selected{{end}}>padrão ({{.DefaultMode}})</option>
+        <option value="learn" {{if eq .ExplicitMode "learn"}}selected{{end}}>learn: deixa passar e registra</option>
+        <option value="monitor" {{if eq .ExplicitMode "monitor"}}selected{{end}}>monitor: deixa passar e alerta fora da lista</option>
+        <option value="enforce" {{if eq .ExplicitMode "enforce"}}selected{{end}}>enforce: só a whitelist passa</option>
+      </select>
+      <button type="submit">Salvar</button>
+    </form>
+  </div>
+  <div class="chart" title="Conexões por hora (vermelho: com bloqueio)">
+    {{- $max := .MaxHits}}
+    {{- range .Hours}}<div {{if .Blocked}}class="blk"{{end}} style="height:{{pct .Hits $max}}%" title="{{hour .Hour}}: {{.Hits}} conexão(ões), {{.Blocked}} bloqueio(s)"></div>{{end}}
+  </div>
+  <div class="axis"><span>24h atrás</span><span>agora</span></div>
+</section>
+
+<section class="card">
+  <div class="head">
+    <h2>Destinos e whitelist sugerida</h2>
+    <div class="meta">Marcados: usados por este serviço e sem nada suspeito. Desmarque o que parecer estranho e aprove.</div>
+  </div>
+  {{- if not .Dests}}
+  <div class="empty">Nenhum destino registrado ainda.</div>
+  {{- else}}
+  <form method="post" action="/service/{{path .Name}}/allow">
+  <div class="scroll">
+  <table>
+    <thead><tr><th></th><th>Destino</th><th>Protocolo</th><th class="num">Conexões</th><th class="num">Enviado</th><th class="num">Recebido</th><th>Primeira vez</th><th>Última vez</th></tr></thead>
+    <tbody>
+    {{- range .Dests}}
+      <tr>
+        <td>{{if not .Listed}}<input type="checkbox" name="rule" value="{{.Rule}}" {{if .Suggest}}checked{{end}} aria-label="liberar {{.Rule}}">{{end}}</td>
+        <td><code>{{.Rule}}</code>
+          {{- if .Listed}}<span class="tag tag-ok">na whitelist</span>{{end}}
+          {{- range .Suspicious}}<span class="tag tag-warn">{{.}}</span>{{end}}
+          {{- if .Blocked}}<span class="tag tag-bad">{{.Blocked}} bloqueio(s)</span>{{end}}
+          {{- if .SNIMismatch}}<span class="tag tag-bad">SNI diferente do CONNECT</span>{{end}}
+        </td>
+        <td>{{.Proto}}</td>
+        <td class="num">{{.Hits}}</td>
+        <td class="num">{{bytes .BytesOut}}</td>
+        <td class="num">{{bytes .BytesIn}}</td>
+        <td>{{when .FirstSeen}}</td>
+        <td>{{ago .LastSeen}}</td>
+      </tr>
+    {{- end}}
+    </tbody>
+  </table>
+  </div>
+  <div class="pad"><button type="submit">Aprovar selecionados na whitelist</button></div>
+  </form>
+  {{- end}}
+</section>
+
+<section class="card">
+  <div class="head">
+    <h2>Whitelist ({{len .Allow}})</h2>
+    <div class="meta">Host exato com porta (<code>api.stripe.com:443</code>). Wildcard só explícito (<code>*.dominio:443</code>) e só para subdomínios: prefira o host exato.</div>
+  </div>
+  {{- if .Allow}}
+  <table>
+    <tbody>
+    {{- range .Allow}}
+      <tr>
+        <td><code>{{.}}</code>{{if eq (slice . 0 1) "*"}}<span class="tag tag-warn">wildcard</span>{{end}}</td>
+        <td class="num">
+          <form method="post" action="/service/{{path $.Name}}/remove">
+            <input type="hidden" name="rule" value="{{.}}"><button class="danger" type="submit">remover</button>
+          </form>
+        </td>
+      </tr>
+    {{- end}}
+    </tbody>
+  </table>
+  {{- end}}
+  <form method="post" action="/service/{{path .Name}}/allow" class="pad row">
+    <input type="text" name="new" placeholder="api.exemplo.com:443" aria-label="nova regra">
+    <button type="submit">Adicionar</button>
+  </form>
+</section>
+
+{{- if .DNS}}
+<section class="card">
+  <div class="head"><h2>Consultas DNS ({{len .DNS}})</h2></div>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Nome</th><th>Tipo</th><th class="num">Consultas</th><th class="num">Negadas</th><th>Última vez</th></tr></thead>
+    <tbody>
+    {{- range .DNS}}
+      <tr>
+        <td><code>{{.Name}}</code>{{if .Denied}}<span class="tag tag-bad">NXDOMAIN</span>{{end}}</td>
+        <td>{{.QType}}</td>
+        <td class="num">{{.Hits}}</td>
+        <td class="num">{{.Denied}}</td>
+        <td>{{ago .LastSeen}}</td>
+      </tr>
+    {{- end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{- end}}
+{{end}}

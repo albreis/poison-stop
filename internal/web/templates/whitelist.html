@@ -1,0 +1,16 @@
+{{define "title"}}Whitelist{{end}}
+{{define "content"}}
+<h1>Whitelist</h1>
+<p class="sub">Modo e regras de todos os serviços. Exporte para guardar no Git ou importe para trocar tudo de uma vez.</p>
+<section class="card">
+  <div class="head row">
+    <h2>YAML</h2>
+    <a href="/whitelist.yaml">Baixar poisonstop-whitelist.yml</a>
+  </div>
+  <form method="post" action="/whitelist/import" class="pad">
+    <textarea name="yaml" spellcheck="false" aria-label="whitelist em YAML">{{.YAML}}</textarea>
+    <p class="meta">Importar substitui todas as regras atuais pelas deste texto.</p>
+    <button type="submit">Importar</button>
+  </form>
+</section>
+{{end}}

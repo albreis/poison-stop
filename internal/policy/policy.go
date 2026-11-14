@@ -6,6 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/albreis/poison-stop/internal/config"
 )
@@ -25,26 +26,58 @@ type Decision struct {
 	Reason  string
 }
 
-// Engine avalia conexões contra a configuração.
+// Engine avalia conexões contra as regras. As regras podem ser trocadas a
+// quente (painel) com SetRules.
 type Engine struct {
-	cfg *config.Config
+	defaultMode string
+	rules       atomic.Pointer[map[string]config.ServiceConfig]
 }
 
-// New cria um Engine.
-func New(cfg *config.Config) *Engine { return &Engine{cfg: cfg} }
+// New cria um Engine com as regras do arquivo.
+func New(cfg *config.Config) *Engine {
+	e := &Engine{defaultMode: cfg.DefaultMode}
+	e.SetRules(cfg.Services)
+	return e
+}
+
+// SetRules troca as regras de todos os serviços.
+func (e *Engine) SetRules(r map[string]config.ServiceConfig) {
+	cp := make(map[string]config.ServiceConfig, len(r))
+	for k, v := range r {
+		cp[k] = config.ServiceConfig{Mode: v.Mode, Allow: append([]string(nil), v.Allow...)}
+	}
+	e.rules.Store(&cp)
+}
+
+// Rules devolve uma cópia das regras atuais.
+func (e *Engine) Rules() map[string]config.ServiceConfig {
+	r := *e.rules.Load()
+	cp := make(map[string]config.ServiceConfig, len(r))
+	for k, v := range r {
+		cp[k] = config.ServiceConfig{Mode: v.Mode, Allow: append([]string(nil), v.Allow...)}
+	}
+	return cp
+}
+
+// DefaultMode é o modo de quem não tem regra.
+func (e *Engine) DefaultMode() string { return e.defaultMode }
+
+func (e *Engine) rule(service string) config.ServiceConfig {
+	return (*e.rules.Load())[service]
+}
 
 // ModeOf devolve o modo efetivo de um serviço.
 func (e *Engine) ModeOf(service string) string {
-	if s, ok := e.cfg.Services[service]; ok && s.Mode != "" {
+	if s := e.rule(service); s.Mode != "" {
 		return s.Mode
 	}
-	return e.cfg.DefaultMode
+	return e.defaultMode
 }
 
 // Decide avalia service -> host:port.
 func (e *Engine) Decide(service, host string, port int) Decision {
 	mode := e.ModeOf(service)
-	listed := Listed(e.cfg.Services[service].Allow, host, port)
+	listed := Listed(e.rule(service).Allow, host, port)
 	d := Decision{Mode: mode, Listed: listed, Allowed: true}
 	switch {
 	case mode == Learn:
@@ -67,7 +100,7 @@ func (e *Engine) Decide(service, host string, port int) Decision {
 // aparecem em alguma regra da whitelist (qualquer porta).
 func (e *Engine) DecideName(service, name string) Decision {
 	mode := e.ModeOf(service)
-	listed := NameListed(e.cfg.Services[service].Allow, name)
+	listed := NameListed(e.rule(service).Allow, name)
 	d := Decision{Mode: mode, Listed: listed, Allowed: true}
 	switch {
 	case mode == Learn:
@@ -140,6 +173,22 @@ func splitRule(rule string) (string, int) {
 
 func normalize(h string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(h)), ".")
+}
+
+// ValidRule confere o formato de uma regra de whitelist.
+func ValidRule(rule string) bool {
+	rule = strings.TrimSpace(rule)
+	if rule == "" || strings.ContainsAny(rule, " /\\\t\"'<>") {
+		return false
+	}
+	h, p := splitRule(rule)
+	if p <= 0 || p > 65535 || h == "" || h == "*." {
+		return false
+	}
+	if strings.Contains(h[1:], "*") || (strings.HasPrefix(h, "*") && !strings.HasPrefix(h, "*.")) {
+		return false
+	}
+	return true
 }
 
 // IsIP diz se o host é um IP literal.

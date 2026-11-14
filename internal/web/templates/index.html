@@ -1,117 +1,39 @@
-<!doctype html>
-<html lang="pt-BR">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="refresh" content="15">
-<title>PoisonStop</title>
-<style>
-  :root { --bg:#f7f7f5; --card:#fff; --text:#1d1d1b; --muted:#6b6b66; --line:#e4e4df;
-          --accent:#0f6b4f; --warn:#a15c00; --warn-bg:#fff3df; --bad:#b42318; --bad-bg:#fde8e6; --ok-bg:#e5f4ec; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#141413; --card:#1e1e1c; --text:#ecece8; --muted:#a0a09a; --line:#2f2f2c;
-            --accent:#5cc79c; --warn:#f0b35a; --warn-bg:#3a2a12; --bad:#f2867c; --bad-bg:#3d1714; --ok-bg:#163126; }
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { padding:20px 24px 8px; max-width:1100px; margin:auto; }
-  header h1 { margin:0; font-size:22px; }
-  header p { margin:4px 0 0; color:var(--muted); }
-  main { max-width:1100px; margin:auto; padding:8px 16px 40px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; margin:16px 0; overflow:hidden; }
-  .card h2 { margin:0; font-size:17px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  .head { padding:14px 16px; border-bottom:1px solid var(--line); }
-  .meta { color:var(--muted); font-size:13px; margin-top:4px; }
-  .mode { font-size:12px; font-weight:600; padding:2px 8px; border-radius:99px; text-transform:uppercase; letter-spacing:.03em; }
-  .mode-learn { background:var(--ok-bg); color:var(--accent); }
-  .mode-monitor { background:var(--warn-bg); color:var(--warn); }
-  .mode-enforce { background:var(--bad-bg); color:var(--bad); }
-  .scroll { overflow-x:auto; }
-  table { width:100%; border-collapse:collapse; font-size:14px; }
-  th, td { text-align:left; padding:8px 16px; border-bottom:1px solid var(--line); white-space:nowrap; }
-  th { color:var(--muted); font-weight:500; font-size:12px; text-transform:uppercase; letter-spacing:.03em; }
-  tr:last-child td { border-bottom:0; }
-  td.num { text-align:right; font-variant-numeric:tabular-nums; }
-  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size:13px; }
-  .tag { display:inline-block; font-size:11px; padding:1px 6px; border-radius:4px; margin-left:6px; }
-  .tag-warn { background:var(--warn-bg); color:var(--warn); }
-  .tag-bad { background:var(--bad-bg); color:var(--bad); }
-  .tag-ok { background:var(--ok-bg); color:var(--accent); }
-  details { border-top:1px solid var(--line); }
-  summary { cursor:pointer; padding:10px 16px; color:var(--muted); font-size:13px; }
-  .empty { padding:40px 16px; text-align:center; color:var(--muted); }
-</style>
-</head>
-<body>
-<header>
-  <h1>PoisonStop</h1>
-  <p>Para onde cada serviço manda requisições. A página atualiza sozinha a cada 15 segundos.</p>
-</header>
-<main>
+{{define "title"}}Visão geral{{end}}
+{{define "content"}}
+<h1>Visão geral</h1>
+<p class="sub">Serviços que passaram pelo proxy ou pelo DNS. Sem regra própria, um serviço usa o modo padrão <span class="mode mode-{{.DefaultMode}}">{{.DefaultMode}}</span>.</p>
+
+<div class="stats">
+  <div class="stat"><b>{{len .Services}}</b><span>serviço(s)</span></div>
+  <div class="stat"><b>{{.Blocked24h}}</b><span>bloqueio(s) nas últimas 24h</span></div>
+</div>
+
+<section class="card">
 {{- if not .Services}}
-  <div class="card empty">
+  <div class="empty">
     Nenhuma conexão registrada ainda.<br>
     Aponte <code>HTTP_PROXY</code> e <code>HTTPS_PROXY</code> dos seus serviços para <code>http://poisonstop:3128</code>.
   </div>
-{{- end}}
-{{- range .Services}}
-  <section class="card">
-    <div class="head">
-      <h2><code>{{.Name}}</code> <span class="mode mode-{{.Mode}}">{{.Mode}}</span></h2>
-      <div class="meta">
-        {{.Hosts}} destino(s) · {{.Hits}} conexão(ões){{if .Blocked}} · <strong>{{.Blocked}} bloqueada(s)</strong>{{end}}
-        · último IP {{.LastIP}} · visto {{ago .LastSeen}}
-      </div>
-    </div>
-    <div class="scroll">
-    <table>
-      <thead><tr>
-        <th>Destino</th><th>Protocolo</th><th class="num">Conexões</th><th class="num">Enviado</th><th class="num">Recebido</th>
-        <th>Primeira vez</th><th>Última vez</th>
-      </tr></thead>
-      <tbody>
-      {{- range .Dests}}
-        <tr>
-          <td><code>{{.Host}}:{{.Port}}</code>
-            {{- if .Listed}}<span class="tag tag-ok">na whitelist</span>{{end}}
-            {{- range .Suspicious}}<span class="tag tag-warn">{{.}}</span>{{end}}
-            {{- if .Blocked}}<span class="tag tag-bad">{{.Blocked}} bloqueio(s)</span>{{end}}
-            {{- if .SNIMismatch}}<span class="tag tag-bad">SNI diferente do CONNECT</span>{{end}}
-          </td>
-          <td>{{.Proto}}</td>
-          <td class="num">{{.Hits}}</td>
-          <td class="num">{{bytes .BytesOut}}</td>
-          <td class="num">{{bytes .BytesIn}}</td>
-          <td>{{when .FirstSeen}}</td>
-          <td>{{ago .LastSeen}}</td>
-        </tr>
-      {{- end}}
-      </tbody>
-    </table>
-    </div>
-    {{- if .DNS}}
-    <details>
-      <summary>Consultas DNS ({{len .DNS}} nome(s))</summary>
-      <div class="scroll">
-      <table>
-        <thead><tr><th>Nome</th><th>Tipo</th><th class="num">Consultas</th><th class="num">Negadas</th><th>Última vez</th></tr></thead>
-        <tbody>
-        {{- range .DNS}}
-          <tr>
-            <td><code>{{.Name}}</code>{{if .Denied}}<span class="tag tag-bad">NXDOMAIN</span>{{end}}</td>
-            <td>{{.QType}}</td>
-            <td class="num">{{.Hits}}</td>
-            <td class="num">{{.Denied}}</td>
-            <td>{{ago .LastSeen}}</td>
-          </tr>
-        {{- end}}
-        </tbody>
-      </table>
-      </div>
-    </details>
+{{- else}}
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Serviço</th><th>Modo</th><th class="num">Destinos</th><th class="num">Na whitelist</th><th class="num">Conexões</th><th class="num">Bloqueios 24h</th><th>Visto</th></tr></thead>
+    <tbody>
+    {{- range .Services}}
+      <tr>
+        <td><a href="/service/{{path .Name}}"><code>{{.Name}}</code></a>
+          {{- if .LearnLeft}}<span class="tag tag-ok">{{.LearnLeft}}</span>{{end}}</td>
+        <td><span class="mode mode-{{.Mode}}">{{.Mode}}</span></td>
+        <td class="num">{{.Hosts}}</td>
+        <td class="num">{{.Allowed}}</td>
+        <td class="num">{{.Hits}}</td>
+        <td class="num">{{if .Blocked24h}}<span class="tag tag-bad">{{.Blocked24h}}</span>{{else}}0{{end}}</td>
+        <td>{{ago .LastSeen}}</td>
+      </tr>
     {{- end}}
-  </section>
+    </tbody>
+  </table>
+  </div>
 {{- end}}
-</main>
-</body>
-</html>
+</section>
+{{end}}

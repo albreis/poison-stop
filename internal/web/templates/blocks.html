@@ -1,0 +1,34 @@
+{{define "title"}}Bloqueios{{end}}
+{{define "content"}}
+<h1>Bloqueios</h1>
+<p class="sub">Tentativas negadas pelo proxy e pelo DNS, das mais recentes para as mais antigas. Libere só o que você reconhece.</p>
+<section class="card">
+{{- if not .Rows}}
+  <div class="empty">Nenhum bloqueio até agora.</div>
+{{- else}}
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Serviço</th><th>Destino</th><th>Tipo</th><th class="num">Vezes</th><th>Última vez</th><th></th></tr></thead>
+    <tbody>
+    {{- range .Rows}}
+      <tr>
+        <td><a href="/service/{{path .Service}}"><code>{{.Service}}</code></a></td>
+        <td><code>{{.Host}}{{if .Port}}:{{.Port}}{{end}}</code></td>
+        <td>{{.Kind}}</td>
+        <td class="num">{{.Count}}</td>
+        <td>{{ago .LastSeen}}</td>
+        <td class="num">
+          <form method="post" action="/service/{{path .Service}}/allow">
+            <input type="hidden" name="rule" value="{{.Rule}}">
+            <input type="hidden" name="from" value="blocks">
+            <button class="ghost" type="submit">liberar {{.Rule}}</button>
+          </form>
+        </td>
+      </tr>
+    {{- end}}
+    </tbody>
+  </table>
+  </div>
+{{- end}}
+</section>
+{{end}}

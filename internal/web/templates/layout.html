@@ -1,0 +1,86 @@
+{{define "layout"}}<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{- if eq .Path "/" "/blocks"}}<meta http-equiv="refresh" content="30">{{end}}
+<title>{{template "title" .}} · PoisonStop</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --text:#1d1d1b; --muted:#6b6b66; --line:#e4e4df;
+          --accent:#0f6b4f; --warn:#a15c00; --warn-bg:#fff3df; --bad:#b42318; --bad-bg:#fde8e6; --ok-bg:#e5f4ec; --bar:#7fb8a2; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141413; --card:#1e1e1c; --text:#ecece8; --muted:#a0a09a; --line:#2f2f2c;
+            --accent:#5cc79c; --warn:#f0b35a; --warn-bg:#3a2a12; --bad:#f2867c; --bad-bg:#3d1714; --ok-bg:#163126; --bar:#3d8c6e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color:var(--accent); }
+  nav { display:flex; gap:18px; align-items:center; flex-wrap:wrap; max-width:1100px; margin:auto; padding:16px 16px 4px; }
+  nav .brand { font-weight:700; font-size:18px; color:var(--text); text-decoration:none; margin-right:8px; }
+  nav a { text-decoration:none; }
+  nav a.on { font-weight:600; text-decoration:underline; text-underline-offset:4px; }
+  nav form { margin-left:auto; }
+  main { max-width:1100px; margin:auto; padding:8px 16px 40px; }
+  h1 { font-size:22px; margin:12px 0 4px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  h2 { font-size:16px; margin:0; }
+  .sub { color:var(--muted); margin:0 0 8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; margin:16px 0; overflow:hidden; }
+  .head { padding:14px 16px; border-bottom:1px solid var(--line); }
+  .pad { padding:14px 16px; }
+  .meta { color:var(--muted); font-size:13px; margin-top:4px; }
+  .mode { font-size:12px; font-weight:600; padding:2px 8px; border-radius:99px; text-transform:uppercase; letter-spacing:.03em; }
+  .mode-learn { background:var(--ok-bg); color:var(--accent); }
+  .mode-monitor { background:var(--warn-bg); color:var(--warn); }
+  .mode-enforce { background:var(--bad-bg); color:var(--bad); }
+  .scroll { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 16px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; font-size:12px; text-transform:uppercase; letter-spacing:.03em; }
+  tr:last-child td { border-bottom:0; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size:13px; }
+  .tag { display:inline-block; font-size:11px; padding:1px 6px; border-radius:4px; margin-left:6px; }
+  .tag-warn { background:var(--warn-bg); color:var(--warn); }
+  .tag-bad { background:var(--bad-bg); color:var(--bad); }
+  .tag-ok { background:var(--ok-bg); color:var(--accent); }
+  .empty { padding:32px 16px; text-align:center; color:var(--muted); }
+  .flash { background:var(--ok-bg); color:var(--accent); padding:10px 14px; border-radius:8px; margin:12px 0; }
+  .stats { display:flex; gap:12px; flex-wrap:wrap; margin:12px 0; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 16px; min-width:150px; }
+  .stat b { display:block; font-size:24px; }
+  .stat span { color:var(--muted); font-size:13px; }
+  button, select, input[type=text], input[type=password], textarea {
+    font:inherit; color:var(--text); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
+  button { cursor:pointer; background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.ghost { background:transparent; color:var(--accent); }
+  button.danger { background:transparent; color:var(--bad); border-color:var(--line); padding:2px 8px; font-size:13px; }
+  textarea { width:100%; min-height:320px; font-family: ui-monospace, Consolas, monospace; font-size:13px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .chart { display:flex; align-items:flex-end; gap:3px; height:90px; padding:10px 16px 0; }
+  .chart div { flex:1; background:var(--bar); border-radius:2px 2px 0 0; min-height:1px; position:relative; }
+  .chart div.blk { background:var(--bad); }
+  .axis { display:flex; justify-content:space-between; color:var(--muted); font-size:11px; padding:4px 16px 10px; }
+  details summary { cursor:pointer; padding:10px 16px; color:var(--muted); font-size:13px; }
+  details { border-top:1px solid var(--line); }
+  .login { max-width:360px; margin:10vh auto; }
+  .login label { display:block; margin:10px 0 4px; color:var(--muted); font-size:13px; }
+  .login input { width:100%; }
+  .err { color:var(--bad); }
+</style>
+</head>
+<body>
+{{- if .User}}
+<nav>
+  <a class="brand" href="/">PoisonStop</a>
+  <a href="/" {{if eq .Path "/"}}class="on"{{end}}>Visão geral</a>
+  <a href="/blocks" {{if eq .Path "/blocks"}}class="on"{{end}}>Bloqueios</a>
+  <a href="/whitelist" {{if eq .Path "/whitelist"}}class="on"{{end}}>Whitelist</a>
+  <form method="post" action="/logout"><button class="ghost" type="submit">Sair ({{.User}})</button></form>
+</nav>
+{{- end}}
+<main>
+{{- if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+{{template "content" .}}
+</main>
+</body>
+</html>{{end}}

@@ -66,6 +66,27 @@ func run() error {
 	defer st.Close()
 
 	pol := policy.New(cfg)
+	// As regras ficam no banco e são editadas pelo painel. O arquivo só
+	// semeia o banco na primeira subida.
+	seeded, err := st.RulesSeeded(context.Background())
+	if err != nil {
+		return err
+	}
+	if !seeded {
+		if err := st.ReplaceRules(context.Background(), cfg.Services); err != nil {
+			return err
+		}
+		slog.Info("regras importadas do arquivo para o banco", "services", len(cfg.Services))
+	}
+	rules, err := st.LoadRules(context.Background())
+	if err != nil {
+		return err
+	}
+	pol.SetRules(rules)
+	if err := web.EnsureAdmin(context.Background(), st, os.Getenv("POISONSTOP_ADMIN_USER"), os.Getenv("POISONSTOP_ADMIN_PASSWORD")); err != nil {
+		return err
+	}
+
 	id := identify.New(cfg.Identify.DockerHost, cfg.Identify.StaticIPs)
 
 	notifier, err := alerts.New(cfg.Alerts)
@@ -80,7 +101,7 @@ func run() error {
 	}
 	px := proxy.New(pol, id, watcher)
 
-	panel, err := web.New(st, pol, cfg.Panel.DenyCIDRs)
+	panel, err := web.New(st, pol, cfg.Panel.DenyCIDRs, time.Duration(cfg.LearnPeriod))
 	if err != nil {
 		return err
 	}
